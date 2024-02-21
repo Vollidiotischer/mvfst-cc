@@ -77,8 +77,8 @@ struct CongestionControlConfig {
   bool ignoreLoss{false};
 
   // Used by: BBR2
-  // Whether BBR2 should advance the cycle count on exiting startup
-  bool advanceCycleAfterStartup{true};
+  // Whether BBR2 should enable reno coexistence.
+  bool enableRenoCoexistence{false};
 };
 
 struct DatagramConfig {
