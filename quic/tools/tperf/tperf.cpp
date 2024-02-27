@@ -233,6 +233,9 @@ class ServerStreamHandler : public quic::QuicSocket::ConnectionSetupCallback,
   }
 
   void onTransportReady() noexcept override {
+    return; // Disable opening a stream. Instead we want to receive data. I
+            // believe the client now has to createUnidirectionalStream()
+
     if (FLAGS_max_pacing_rate != std::numeric_limits<uint64_t>::max()) {
       sock_->setMaxPacingRate(FLAGS_max_pacing_rate);
     }
@@ -242,6 +245,7 @@ class ServerStreamHandler : public quic::QuicSocket::ConnectionSetupCallback,
     }
   }
 
+  // UNUSED
   void createNewStream() noexcept {
     if (!sock_) {
       VLOG(4) << __func__ << ": socket is closed.";
@@ -254,6 +258,7 @@ class ServerStreamHandler : public quic::QuicSocket::ConnectionSetupCallback,
     notifyDataForStream(stream.value());
   }
 
+  // UNUSED
   void notifyDataForStream(quic::StreamId id) {
     evb_->runInEventBaseThread([&, id]() {
       if (!sock_) {
@@ -268,7 +273,24 @@ class ServerStreamHandler : public quic::QuicSocket::ConnectionSetupCallback,
   }
 
   void readAvailable(quic::StreamId id) noexcept override {
-    LOG(INFO) << "read available for stream id=" << id;
+    // LOG(INFO) << "read available for stream id=" << id;
+
+    auto readData = sock_->read(id, 0);
+    if (readData.hasError()) {
+      LOG(FATAL) << "TPerfClient failed read from stream=" << id
+                 << ", error=" << (uint32_t)readData.error();
+    }
+
+    static uint64_t receivedBytes = 0;
+
+    auto readBytes = readData->first->computeChainDataLength();
+    LOG(INFO) << "Read " << readBytes << " Bytes";
+    receivedBytes += readBytes;
+    bytesPerStream_[id] += readBytes;
+    if (readData.value().second) {
+      //   bytesPerStreamHistogram_.addValue(bytesPerStream_[streamId]);
+      bytesPerStream_.erase(id);
+    }
   }
 
   void readError(quic::StreamId id, QuicError error) noexcept override {
@@ -535,6 +557,7 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
         maxReceivePacketSize_(maxReceivePacketSize),
         useInplaceWrite_(useInplaceWrite) {
     fEvb_.setName("tperf_client");
+    buf_ = folly::IOBuf::createCombined(FLAGS_block_size);
   }
 
   void timeoutExpired() noexcept override {
@@ -614,6 +637,27 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
 
   void onTransportReady() noexcept override {
     LOG(INFO) << "TPerfClient: onTransportReady";
+    auto stream = this->quicClient_->createUnidirectionalStream();
+    this->bytesPerStream_[stream.value()] = 0;
+    auto id = stream.value();
+    qEvb_->runInEventBaseThread([&, id]() {
+      if (!this->quicClient_) {
+        VLOG(5) << "OWN: notifyDataForStream(" << id << "): socket is closed.";
+        return;
+      }
+      auto res = this->quicClient_->notifyPendingWriteOnStream(id, this);
+
+      if (res.hasError()) {
+        LOG(FATAL) << "OWN: " << quic::toString(res.error());
+      } else {
+        LOG(INFO) << "OWN: Created Client Stream!";
+      }
+    });
+
+    if (!timerScheduled_) {
+      timerScheduled_ = true;
+      fEvb_.timer().scheduleTimeout(this, duration_);
+    }
   }
 
   void onStopSending(
@@ -641,6 +685,46 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
       override {
     LOG(INFO) << "TPerfClient stream" << id
               << " is write ready with maxToSend=" << maxToSend;
+
+    bool eof = false;
+    uint64_t toSend = std::min<uint64_t>(
+        999, maxToSend); // std::min<uint64_t>(maxToSend, FLAGS_block_size);
+    // regularSend(id, toSend, eof);
+
+    // RegularSend
+    {
+      auto sendBuffer = buf_->clone();
+      sendBuffer->append(toSend);
+      //   sendBuffer->unshare();
+      for (int i = 0; i < toSend; i++) {
+        sendBuffer->writableBuffer()[i] = 69;
+      }
+      auto res = this->quicClient_->writeChain(
+          id, std::move(sendBuffer), eof, nullptr);
+      // sendBuffer->clear();
+      buf_->clone()->clear();
+
+      if (res.hasError()) {
+        LOG(FATAL) << "Got error on write: " << quic::toString(res.error());
+      }
+    }
+
+    {
+      qEvb_->runInEventBaseThread([&, id]() {
+        if (!this->quicClient_) {
+          VLOG(5) << "OWN: notifyDataForStream(" << id
+                  << "): socket is closed.";
+          return;
+        }
+        auto res = this->quicClient_->notifyPendingWriteOnStream(id, this);
+
+        if (res.hasError()) {
+          LOG(FATAL) << "OWN: " << quic::toString(res.error());
+        } else {
+          LOG(INFO) << "OWN: Created Client Stream!";
+        }
+      });
+    }
   }
 
   void onStreamWriteError(quic::StreamId id, QuicError error) noexcept
@@ -717,6 +801,7 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
  private:
   bool timerScheduled_{false};
   std::string host_;
+  std::unique_ptr<folly::IOBuf> buf_;
   uint16_t port_;
   std::shared_ptr<quic::QuicClientTransport> quicClient_;
   folly::EventBase fEvb_;
