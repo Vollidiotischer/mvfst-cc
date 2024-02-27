@@ -162,8 +162,7 @@ uint64_t NewReno::getWritableBytes() const noexcept {
 }
 
 uint64_t NewReno::getCongestionWindow() const noexcept {
-  return 0;
-  //   return cwndBytes_;
+  return cwndBytes_;
 }
 
 bool NewReno::inSlowStart() const noexcept {
