@@ -528,6 +528,24 @@ class TPerfServer {
   std::shared_ptr<quic::QuicServer> server_;
 };
 
+class MyAckCallback : public QuicClientTransport::ByteEventCallback {
+ public:
+  MyAckCallback() = default;
+  ~MyAckCallback() {
+    delete this;
+  }
+
+  void onByteEventRegistered(
+      QuicClientTransport::ByteEvent /* byteEvent */) override {}
+
+  void onByteEvent(QuicClientTransport::ByteEvent event) override {
+    LOG(INFO) << "OWN: MSG ACKED id: " << event.id;
+  }
+
+  void onByteEventCanceled(
+      QuicClientTransport::ByteEventCancellation cancellation) override {}
+}; // namespace tperf
+
 class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
                     public quic::QuicSocket::ConnectionCallback,
                     public quic::QuicSocket::ReadCallback,
@@ -699,8 +717,10 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
       for (int i = 0; i < toSend; i++) {
         sendBuffer->writableBuffer()[i] = 69;
       }
-      auto res = this->quicClient_->writeChain(
-          id, std::move(sendBuffer), eof, nullptr);
+
+      MyAckCallback* cb = new MyAckCallback();
+      auto res =
+          this->quicClient_->writeChain(id, std::move(sendBuffer), eof, cb);
       // sendBuffer->clear();
       buf_->clone()->clear();
 
