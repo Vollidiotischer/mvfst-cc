@@ -9,6 +9,7 @@
 #include <quic/state/AckEvent.h>
 #include <chrono>
 #include <utility>
+#include "folly/Optional.h"
 
 namespace quic {
 
@@ -73,14 +74,16 @@ AckEvent::AckPacket::AckPacket(
     folly::Optional<OutstandingPacketWrapper::LastAckedPacketInfo>
         lastAckedPacketInfoIn,
     bool isAppLimitedIn,
-    folly::Optional<std::chrono::microseconds>&& receiveRelativeTimeStampUsec)
+    folly::Optional<std::chrono::microseconds>&& receiveRelativeTimeStampUsec,
+    folly::Optional<uint64_t> customData)
     : packetNum(packetNumIn),
       nonDsrPacketSequenceNumber(nonDsrPacketSequenceNumberIn),
       outstandingPacketMetadata(std::move(outstandingPacketMetadataIn)),
       detailsPerStream(std::move(detailsPerStreamIn)),
       lastAckedPacketInfo(std::move(lastAckedPacketInfoIn)),
       receiveRelativeTimeStampUsec(std::move(receiveRelativeTimeStampUsec)),
-      isAppLimited(isAppLimitedIn) {}
+      isAppLimited(isAppLimitedIn),
+      customData(customData.value_or(69)) {}
 
 AckEvent::AckPacket::Builder&& AckEvent::AckPacket::Builder::setPacketNum(
     quic::PacketNum packetNumIn) {
@@ -130,6 +133,12 @@ AckEvent::AckPacket::Builder::setReceiveDeltaTimeStamp(
   return std::move(*this);
 }
 
+AckEvent::AckPacket::Builder&& AckEvent::AckPacket::Builder::setCustomData(
+    uint64_t data) {
+  this->customData = data;
+  return std::move(*this);
+}
+
 AckEvent::AckPacket AckEvent::AckPacket::Builder::build() && {
   CHECK(packetNum.has_value());
   CHECK(outstandingPacketMetadata.has_value());
@@ -141,7 +150,8 @@ AckEvent::AckPacket AckEvent::AckPacket::Builder::build() && {
       std::move(detailsPerStream.value()),
       std::move(lastAckedPacketInfo),
       isAppLimited,
-      std::move(receiveRelativeTimeStampUsec));
+      std::move(receiveRelativeTimeStampUsec),
+      this->customData);
 }
 
 AckEvent::Builder&& AckEvent::Builder::setAckTime(TimePoint ackTimeIn) {

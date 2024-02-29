@@ -1,0 +1,10 @@
+CompileFlags: 
+	Add: 
+		- "-fblocks"
+		- "--include-directory=/home/volt/Documents/uni/6sem/mvfst-cc"
+		- "--include-directory=/home/volt/Documents/uni/6sem/mvfst-cc/_build/folly/include"
+		- "--include-directory=/home/volt/Documents/uni/6sem/mvfst-cc/_build/fizz/include"
+		- "--include-directory=/home/volt/Documents/uni/6sem/mvfst-cc/_build/glog-1bS-5P_SY3Y6gK3_MytzJ_GzVfrTypksQZH297dDiJo/include"
+		- "--include-directory=/tmp/fbcode_builder_getdeps-ZhomeZvoltZDocumentsZuniZ6semZmvfst-ccZbuildZfbcode_builder/build/gflags-v9Q07EfLNJ2rUZtT10pHLLie1o9SPSLR22zcE3tJOqI/include"
+		- "--include-directory=/home/volt/Documents/uni/6sem/mvfst-cc/_build/googletest-xLkv8r34lCAl7vUhxBXWEoAkEYu0Hm_ieTiT9tEl-SQ/include"
+		
