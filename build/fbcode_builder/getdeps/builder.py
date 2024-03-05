@@ -4,6 +4,8 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+# pyre-unsafe
+
 import glob
 import json
 import os
@@ -70,7 +72,7 @@ class BuilderBase(object):
                 wrapper = os.path.join(self.build_dir, "succeed.bat")
                 with open(wrapper, "w") as f:
                     f.write("@echo off\n")
-                    f.write(f"call {vcvarsall} amd64\n")
+                    f.write(f'call "{vcvarsall}" amd64\n')
                     f.write("set ERRORLEVEL=0\n")
                     f.write("exit /b 0\n")
                 return [wrapper, "&&"]
@@ -334,7 +336,7 @@ class AutoconfBuilder(BuilderBase):
         env = self._compute_env(install_dirs)
 
         # Some configure scripts need additional env values passed derived from cmds
-        for (k, cmd_args) in self.conf_env_args.items():
+        for k, cmd_args in self.conf_env_args.items():
             out = (
                 subprocess.check_output(cmd_args, env=dict(env.items()))
                 .decode("utf-8")
