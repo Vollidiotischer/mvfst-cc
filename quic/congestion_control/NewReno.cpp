@@ -54,7 +54,7 @@ void NewReno::onPacketSent(const OutstandingPacketWrapper& packet) {
 
 void NewReno::onAckEvent(const AckEvent& ack) {
   //   LOG(INFO) << "Acked " << ack.ackedPackets.size()
-  //             << " packets include: " << pack_nums;
+  //             << "  packets include: " << pack_nums;
 
   DCHECK(ack.largestNewlyAckedPacket.has_value() && !ack.ackedPackets.empty());
   subtractAndCheckUnderflow(conn_.lossState.inflightBytes, ack.ackedBytes);
