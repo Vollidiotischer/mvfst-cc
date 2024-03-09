@@ -495,13 +495,11 @@ folly::dynamic QLogCongestionMetricUpdateEvent::toDynamic() const {
   // creating a folly::dynamic array to hold the information corresponding to
   // the event fields relative_time, category, event_type, trigger, data
   folly::dynamic d = folly::dynamic::array(
-      folly::to<std::string>(refTime.count()),
-      "metric_update",
-      toString(eventType));
+      folly::to<std::string>(refTime.count()), "recovery", toString(eventType));
   folly::dynamic data = folly::dynamic::object();
 
   data["bytes_in_flight"] = bytesInFlight;
-  data["current_cwnd"] = currentCwnd;
+  data["congestion_window"] = currentCwnd;
   data["congestion_event"] = congestionEvent;
   data["state"] = state;
   data["recovery_state"] = recoveryState;
@@ -959,7 +957,7 @@ folly::StringPiece toString(QLogEventType type) {
     case QLogEventType::TransportSummary:
       return "transport_summary";
     case QLogEventType::CongestionMetricUpdate:
-      return "congestion_metric_update";
+      return "metrics_updated";
     case QLogEventType::PacingMetricUpdate:
       return "pacing_metric_update";
     case QLogEventType::AppIdleUpdate:
