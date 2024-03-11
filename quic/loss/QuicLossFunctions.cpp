@@ -518,10 +518,14 @@ folly::Optional<CongestionController::LossEvent> detectLossPackets(
   if (lossEvent.largestLostPacketNum.hasValue()) {
     DCHECK(lossEvent.largestLostSentTime && lossEvent.smallestLostSentTime);
     if (conn.qLogger) {
-      conn.qLogger->addPacketsLost(
-          lossEvent.largestLostPacketNum.value(),
-          lossEvent.lostBytes,
-          lossEvent.lostPackets);
+        for (const auto& lost_packet : lossEvent.lostPacketNumbers) {
+            conn.qLogger->addPacketsLost(
+                lost_packet,
+                lossEvent.lostBytes,
+                lossEvent.lostPackets);
+
+        }
+     
     }
 
     conn.lossState.rtxCount += lossEvent.lostPackets;
