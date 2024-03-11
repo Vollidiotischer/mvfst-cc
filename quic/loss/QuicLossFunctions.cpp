@@ -516,15 +516,15 @@ folly::Optional<CongestionController::LossEvent> detectLossPackets(
     getLossTime(conn, pnSpace) = delayUntilLost + earliest->metadata.time;
   }
   if (lossEvent.largestLostPacketNum.hasValue()) {
+    
     DCHECK(lossEvent.largestLostSentTime && lossEvent.smallestLostSentTime);
     if (conn.qLogger) {
-        // for (const auto& lost_packet : lossEvent.lostPacketNumbers) {
-        conn.qLogger->addPacketsLost(
-            lossEvent.largestLostPacketNum.value(),
-            lossEvent.lostBytes,
-            lossEvent.lostPackets);
-
-        // }
+        for (const auto& lost_packet_num : lossEvent.lostPacketNumbers) {
+            conn.qLogger->addPacketsLost(
+                lost_packet_num,
+                lossEvent.lostBytes,
+                lossEvent.lostPackets);
+        }
      
     }
 
