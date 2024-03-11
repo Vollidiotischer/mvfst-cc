@@ -735,10 +735,10 @@ folly::dynamic QLogPacketsLostEvent::toDynamic() const {
 
   header["packet_number"] = this->largestLostPacketNum;
   header["packet_type"] = "1RTT";
-  header["length"] = lostBytes;   
+//   header["length"] = lostBytes;   
 
   data["header"] = header;
-//   data["lost_bytes"] = lostBytes;
+  data["packet_size"] = lostBytes;
 //   data["lost_packets"] = lostPackets;
 
   d.push_back(std::move(data));
