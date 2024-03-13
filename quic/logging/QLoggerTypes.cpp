@@ -9,6 +9,7 @@
 
 #include <quic/QuicException.h>
 #include <quic/logging/QLoggerConstants.h>
+#include "folly/dynamic.h"
 
 namespace quic {
 
@@ -495,13 +496,11 @@ folly::dynamic QLogCongestionMetricUpdateEvent::toDynamic() const {
   // creating a folly::dynamic array to hold the information corresponding to
   // the event fields relative_time, category, event_type, trigger, data
   folly::dynamic d = folly::dynamic::array(
-      folly::to<std::string>(refTime.count()),
-      "metric_update",
-      toString(eventType));
+      folly::to<std::string>(refTime.count()), "recovery", toString(eventType));
   folly::dynamic data = folly::dynamic::object();
 
   data["bytes_in_flight"] = bytesInFlight;
-  data["current_cwnd"] = currentCwnd;
+  data["congestion_window"] = currentCwnd;
   data["congestion_event"] = congestionEvent;
   data["state"] = state;
   data["recovery_state"] = recoveryState;
@@ -643,9 +642,16 @@ folly::dynamic QLogPacketDropEvent::toDynamic() const {
   // creating a folly::dynamic array to hold the information corresponding to
   // the event fields relative_time, category, event_type, trigger, data
   folly::dynamic d = folly::dynamic::array(
-      folly::to<std::string>(refTime.count()), "loss", toString(eventType));
+      folly::to<std::string>(refTime.count()),
+      "transport",
+      "packet_dropped"); // toString(eventType)
+
+  folly::dynamic raw = folly::dynamic::object();
+  raw["length"] = packetSize;
+
   folly::dynamic data = folly::dynamic::object();
 
+  data["raw"] = raw;
   data["packet_size"] = packetSize;
   data["drop_reason"] = dropReason;
 
@@ -722,12 +728,18 @@ folly::dynamic QLogPacketsLostEvent::toDynamic() const {
   // creating a folly::dynamic array to hold the information corresponding to
   // the event fields relative_time, category, event_type, trigger, data
   folly::dynamic d = folly::dynamic::array(
-      folly::to<std::string>(refTime.count()), "loss", toString(eventType));
+      folly::to<std::string>(refTime.count()), "recovery", "packet_lost");
   folly::dynamic data = folly::dynamic::object();
 
-  data["largest_lost_packet_num"] = largestLostPacketNum;
-  data["lost_bytes"] = lostBytes;
-  data["lost_packets"] = lostPackets;
+  folly::dynamic header = folly::dynamic::object();
+
+  header["packet_number"] = this->largestLostPacketNum;
+  header["packet_type"] = "1RTT";
+
+  data["header"] = header;
+
+//   data["lost_bytes"] = lostBytes;
+//   data["lost_packets"] = lostPackets;
 
   d.push_back(std::move(data));
   return d;
@@ -959,7 +971,7 @@ folly::StringPiece toString(QLogEventType type) {
     case QLogEventType::TransportSummary:
       return "transport_summary";
     case QLogEventType::CongestionMetricUpdate:
-      return "congestion_metric_update";
+      return "metrics_updated";
     case QLogEventType::PacingMetricUpdate:
       return "pacing_metric_update";
     case QLogEventType::AppIdleUpdate:
