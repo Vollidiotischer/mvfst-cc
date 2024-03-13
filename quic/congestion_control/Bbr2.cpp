@@ -26,13 +26,13 @@ constexpr uint64_t kMaxExtraAckedFilterLen =
 constexpr float kStartupPacingGain = 2.89; // 2 / ln(2)
 constexpr float kDrainPacingGain = 1 / kStartupPacingGain;
 constexpr float kProbeBwDownPacingGain = 0.9;
-constexpr float kProbeBwCruisePacingGain = 1.0;
-constexpr float kProbeBwRefillPacingGain = 1.0;
+constexpr float kProbeBwCruiseRefillPacingGain = 1.0;
 constexpr float kProbeBwUpPacingGain = 1.25;
 constexpr float kProbeRttPacingGain = 1.0;
 
 constexpr float kStartupCwndGain = 2.89;
-constexpr float kProbeBwCwndGain = 2.0;
+constexpr float kProbeBwCruiseRefillCwndGain = 2.0;
+constexpr float kProbeBwUpDownCwndGain = 2.0;
 constexpr float kProbeRttCwndGain = 0.5;
 
 constexpr float kBeta = 0.7;
@@ -138,6 +138,12 @@ void Bbr2CongestionController::onPacketAckOrLoss(
   }
 
   if (ackEvent) {
+    if (ackEvent->implicit) {
+      // Implicit acks should not be used for bandwidth or rtt estimation
+      setCwnd(ackEvent->ackedBytes, 0);
+      return;
+    }
+
     if (appLimited_ &&
         appLimitedLastSendTime_ <= ackEvent->largestNewlyAckedPacketSentTime) {
       appLimited_ = false;
@@ -229,8 +235,7 @@ void Bbr2CongestionController::resetLowerBounds() {
 }
 void Bbr2CongestionController::enterStartup() {
   state_ = State::Startup;
-  pacingGain_ = kStartupPacingGain;
-  cwndGain_ = kStartupCwndGain;
+  updatePacingAndCwndGain();
 }
 
 void Bbr2CongestionController::setPacing() {
@@ -331,7 +336,6 @@ void Bbr2CongestionController::restoreCwnd() {
 }
 void Bbr2CongestionController::exitProbeRtt() {
   resetLowerBounds();
-  cwndGain_ = kProbeBwCwndGain;
   if (filledPipe_) {
     startProbeBwDown();
     startProbeBwCruise();
@@ -387,7 +391,7 @@ void Bbr2CongestionController::updateCongestionSignals(
   if (state_ == State::ProbeBw_Up) {
     return;
   }
-  if (lossBytesInRound_ > 0 && !conn_.transportSettings.ccaConfig.ignoreLoss) {
+  if (lossBytesInRound_ > 0) {
     // InitLowerBounds
     if (!bandwidthLo_.has_value()) {
       bandwidthLo_ = maxBwFilter_.GetBest();
@@ -478,8 +482,7 @@ void Bbr2CongestionController::checkStartupHighLoss() {
 
 void Bbr2CongestionController::enterDrain() {
   state_ = State::Drain;
-  pacingGain_ = kDrainPacingGain; // Slow down pacing
-  cwndGain_ = kStartupCwndGain; // maintain cwnd
+  updatePacingAndCwndGain();
 }
 
 void Bbr2CongestionController::checkDrain() {
@@ -701,8 +704,7 @@ void Bbr2CongestionController::checkProbeRtt(uint64_t ackedBytes) {
 
 void Bbr2CongestionController::enterProbeRtt() {
   state_ = State::ProbeRTT;
-  pacingGain_ = kProbeRttPacingGain;
-  cwndGain_ = kProbeRttCwndGain;
+  updatePacingAndCwndGain();
 }
 
 void Bbr2CongestionController::handleProbeRtt() {
@@ -747,10 +749,12 @@ void Bbr2CongestionController::boundCwndForProbeRTT() {
 void Bbr2CongestionController::boundBwForModel() {
   bandwidth_ = maxBwFilter_.GetBest();
   if (state_ != State::Startup) {
-    if (bandwidthLo_.has_value()) {
+    if (bandwidthLo_.has_value() &&
+        !conn_.transportSettings.ccaConfig.ignoreLoss) {
       bandwidth_ = std::min(bandwidth_, *bandwidthLo_);
     }
-    if (bandwidthHi_.has_value()) {
+    if (bandwidthHi_.has_value() &&
+        !conn_.transportSettings.ccaConfig.ignoreInflightHi) {
       bandwidth_ = std::min(bandwidth_, *bandwidthHi_);
     }
   }
@@ -795,7 +799,6 @@ uint64_t Bbr2CongestionController::getBDPWithGain(float gain) const {
 }
 
 void Bbr2CongestionController::enterProbeBW() {
-  cwndGain_ = kProbeBwCwndGain;
   startProbeBwDown();
 }
 
@@ -827,7 +830,7 @@ void Bbr2CongestionController::startProbeBwDown() {
 
   probeBWCycleStart_ = Clock::now();
   state_ = State::ProbeBw_Down;
-  pacingGain_ = kProbeBwDownPacingGain;
+  updatePacingAndCwndGain();
   startRound();
 
   // This is a new ProbeBW cycle. Advance the max bw filter if we're not app
@@ -838,7 +841,7 @@ void Bbr2CongestionController::startProbeBwDown() {
 }
 void Bbr2CongestionController::startProbeBwCruise() {
   state_ = State::ProbeBw_Cruise;
-  pacingGain_ = kProbeBwCruisePacingGain;
+  updatePacingAndCwndGain();
 }
 
 void Bbr2CongestionController::startProbeBwRefill() {
@@ -846,13 +849,13 @@ void Bbr2CongestionController::startProbeBwRefill() {
   probeUpRounds_ = 0;
   probeUpAcks_ = 0;
   state_ = State::ProbeBw_Refill;
-  pacingGain_ = kProbeBwRefillPacingGain;
+  updatePacingAndCwndGain();
   startRound();
 }
 void Bbr2CongestionController::startProbeBwUp() {
   probeBWCycleStart_ = Clock::now();
   state_ = State::ProbeBw_Up;
-  pacingGain_ = kProbeBwUpPacingGain;
+  updatePacingAndCwndGain();
   startRound();
   raiseInflightHiSlope();
 }
@@ -931,6 +934,41 @@ void Bbr2CongestionController::getStats(
   stats.bbr2Stats.state = uint8_t(state_);
 }
 
+void Bbr2CongestionController::updatePacingAndCwndGain() {
+  switch (state_) {
+    case State::Startup:
+      pacingGain_ = kStartupPacingGain;
+      cwndGain_ = kStartupCwndGain;
+      break;
+    case State::Drain:
+      pacingGain_ = kDrainPacingGain;
+      cwndGain_ = kStartupCwndGain;
+      break;
+    case State::ProbeBw_Up:
+      pacingGain_ = kProbeBwUpPacingGain;
+      cwndGain_ = kProbeBwUpDownCwndGain;
+      break;
+    case State::ProbeBw_Down:
+      pacingGain_ = kProbeBwDownPacingGain;
+      cwndGain_ = kProbeBwUpDownCwndGain;
+      break;
+    case State::ProbeBw_Cruise:
+    case State::ProbeBw_Refill:
+      pacingGain_ =
+          conn_.transportSettings.ccaConfig.overrideCruisePacingGain > 0
+          ? conn_.transportSettings.ccaConfig.overrideCruisePacingGain
+          : kProbeBwCruiseRefillPacingGain;
+      cwndGain_ = conn_.transportSettings.ccaConfig.overrideCruiseCwndGain > 0
+          ? conn_.transportSettings.ccaConfig.overrideCruiseCwndGain
+          : kProbeBwCruiseRefillCwndGain;
+      break;
+    case State::ProbeRTT:
+      pacingGain_ = kProbeRttPacingGain;
+      cwndGain_ = kProbeRttCwndGain;
+      break;
+  }
+}
+
 std::string bbr2StateToString(Bbr2CongestionController::State state) {
   switch (state) {
     case Bbr2CongestionController::State::Startup:
@@ -950,4 +988,5 @@ std::string bbr2StateToString(Bbr2CongestionController::State state) {
   }
   folly::assume_unreachable();
 }
+
 } // namespace quic

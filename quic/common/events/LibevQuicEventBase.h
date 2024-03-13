@@ -26,7 +26,10 @@ namespace quic {
  * (It is copied from the previous interface in
  * quic/common/QuicLibevEventBase.h)
  */
-class LibevQuicEventBase : public QuicEventBase, public QuicTimer {
+class LibevQuicEventBase
+    : public QuicEventBase,
+      public QuicTimer,
+      public std::enable_shared_from_this<LibevQuicEventBase> {
  public:
   explicit LibevQuicEventBase(struct ev_loop* loop);
   ~LibevQuicEventBase() override;
@@ -37,9 +40,6 @@ class LibevQuicEventBase : public QuicEventBase, public QuicTimer {
 
   void runInLoop(folly::Function<void()> cb, bool thisIteration = false)
       override;
-
-  void runInEventBaseThreadAndWait(
-      folly::Function<void()> fn) noexcept override;
 
   bool isInEventBaseThread() const override;
 
@@ -59,7 +59,7 @@ class LibevQuicEventBase : public QuicEventBase, public QuicTimer {
       std::chrono::microseconds timeout) override;
 
   bool loop() override {
-    return ev_run(ev_loop_, 0);
+    return ev_run(ev_loop_, EVRUN_NOWAIT);
   }
 
   bool loopIgnoreKeepAlive() override {
@@ -67,6 +67,11 @@ class LibevQuicEventBase : public QuicEventBase, public QuicTimer {
   }
 
   void runInEventBaseThread(folly::Function<void()> /*fn*/) noexcept override {
+    LOG(FATAL) << __func__ << " not supported in LibevQuicEventBase";
+  }
+
+  void runInEventBaseThreadAndWait(
+      folly::Function<void()> /*fn*/) noexcept override {
     LOG(FATAL) << __func__ << " not supported in LibevQuicEventBase";
   }
 
@@ -81,11 +86,11 @@ class LibevQuicEventBase : public QuicEventBase, public QuicTimer {
   }
 
   bool loopOnce(int /*flags*/) override {
-    LOG(FATAL) << __func__ << " not supported in LibevQuicEventBase";
+    return ev_run(ev_loop_, EVRUN_ONCE | EVRUN_NOWAIT);
   }
 
   void loopForever() override {
-    LOG(FATAL) << __func__ << " not supported in LibevQuicEventBase";
+    ev_run(ev_loop_, 0);
   }
 
   void terminateLoopSoon() override {
@@ -181,7 +186,17 @@ class LibevQuicEventBase : public QuicEventBase, public QuicTimer {
 
   folly::IntrusiveList<LoopCallbackWrapper, &LoopCallbackWrapper::listHook_>
       loopCallbackWrappers_;
-  ev_check checkWatcher_;
+
+  // This will be null most of the time, but point to the current list of
+  // callbacks if we are in the middle of running loop callbacks, such that
+  // runInLoop(..., true) will always run in the current loop
+  // iteration.
+  folly::IntrusiveList<LoopCallbackWrapper, &LoopCallbackWrapper::listHook_>*
+      runOnceCallbackWrappers_{nullptr};
+
+  // ev_prepare is supposed to run before the loop goes to sleep.
+  // We're using it to execute delayed work given to us via runInLoop.
+  ev_prepare prepareWatcher_;
   std::atomic<std::thread::id> loopThreadId_;
 };
 } // namespace quic
