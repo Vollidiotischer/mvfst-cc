@@ -118,6 +118,7 @@ AckEvent::AckPacket::AckPacket(
         LOG(INFO) << "Local Bandwidth change detected";
         this->packetNum |= ((uint64_t)1 << 63);
       }
+      LOG(INFO) << "MAKING ACK NUM: " << this->packetNum;
       this->customData = bwChangeDetected;
     } 
 }

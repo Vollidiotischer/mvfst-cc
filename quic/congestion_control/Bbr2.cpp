@@ -109,12 +109,13 @@ void Bbr2CongestionController::onPacketAckOrLoss(
     // LOG(INFO) << "AckOrLossEvent";
     for (const auto& ack : ackEvent->ackedPackets) {
     //   LOG(INFO) << "Ack Data: " << ack.customData;
-      if (ack.packetNum & ((uint64_t)1 << 63)) {
-        LOG(INFO) << "Custom Data in ACK is 1!";
-      }
-    //   if (ack.customData == 1) {
+    //   if (ack.packetNum & ((uint64_t)1 << 63)) {
     //     LOG(INFO) << "Custom Data in ACK is 1!";
     //   }
+        LOG(INFO) << "ACK NUM: " << ack.packetNum;
+      if (ack.customData == 1) {
+        LOG(INFO) << "Custom Data in ACK is 1!";
+      }
     }
 
     subtractAndCheckUnderflow(
