@@ -10,6 +10,7 @@
 #include <chrono>
 #include <utility>
 #include "folly/Optional.h"
+#include <fstream>
 
 namespace quic {
 
@@ -83,7 +84,43 @@ AckEvent::AckPacket::AckPacket(
       lastAckedPacketInfo(std::move(lastAckedPacketInfoIn)),
       receiveRelativeTimeStampUsec(std::move(receiveRelativeTimeStampUsec)),
       isAppLimited(isAppLimitedIn),
-      customData(customData.value_or(69)) {}
+      customData(0) { //
+
+    /*
+    Read from the file to check if a change in the available resources was
+    detected and if so send it in the ack (and maybe reset it in the file)
+    */
+    static std::fstream file{
+        "/tmp/bandwidth_change", std::ios::in | std::ios::out};
+
+    static bool fail_logged = false;
+
+    if (!fail_logged && file.is_open()) {
+      fail_logged = true;
+      LOG(ERROR) << "Could not open file '/tmp/bandwidth_change'";
+    }
+
+    // Wether a BW change was detected
+    int bwChangeDetected = 0;
+
+    if (file.is_open()) {
+      // Reset file to first char
+      file.seekg(0);
+      file.clear();
+
+      // Read first char (dont advance file ptr)
+      int c = file.peek();
+      if (c == '1') {
+        // Reset char
+        file.put('0');
+        file.flush();
+        bwChangeDetected = 1;
+        LOG(INFO) << "Local Bandwidth change detected";
+      }
+    }
+    this->customData = bwChangeDetected;
+
+}
 
 AckEvent::AckPacket::Builder&& AckEvent::AckPacket::Builder::setPacketNum(
     quic::PacketNum packetNumIn) {
@@ -201,6 +238,9 @@ AckEvent::AckEvent(AckEvent::BuilderFields&& builderFields)
           *CHECK_NOTNULL(builderFields.maybePacketNumberSpace.get_pointer())),
       largestAckedPacket(
           *CHECK_NOTNULL(builderFields.maybeLargestAckedPacket.get_pointer())),
-      implicit(builderFields.isImplicitAck) {}
+      implicit(builderFields.isImplicitAck) {
+
+
+      }
 
 } // namespace quic

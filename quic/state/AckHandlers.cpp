@@ -12,8 +12,6 @@
 #include <quic/state/QuicStreamFunctions.h>
 #include <iterator>
 
-#include <fstream>
-
 namespace quic {
 
 namespace {
@@ -444,39 +442,6 @@ AckEvent processAckFrame(
       }
     }
 
-    /*
-    Read from the file to check if a change in the available resources was
-    detected and if so send it in the ack (and maybe reset it in the file)
-    */
-    static std::fstream file{
-        "/tmp/bandwidth_change", std::ios::in | std::ios::out};
-
-    static bool fail_logged = false;
-
-    if (!fail_logged && file.is_open()) {
-      fail_logged = true;
-      LOG(ERROR) << "Could not open file '/tmp/bandwidth_change'";
-    }
-
-    // Wether a BW change was detected
-    int bwChangeDetected = 0;
-
-    if (file.is_open()) {
-      // Reset file to first char
-      file.seekg(0);
-      file.clear();
-
-      // Read first char (dont advance file ptr)
-      int c = file.peek();
-      if (c == '1') {
-        // Reset char
-        file.put('0');
-        file.flush();
-        bwChangeDetected = 1;
-        LOG(INFO) << "Local Bandwidth change detected";
-      }
-    }
-
     auto maybeRxTimestamp = packetReceiveTimeStamps.find(
         outstandingPacket.packet.header.getPacketSequenceNum());
     ack.ackedPackets.emplace_back(
@@ -495,7 +460,6 @@ AckEvent processAckFrame(
                     ? folly::make_optional(
                           std::chrono::microseconds(maybeRxTimestamp->second))
                     : folly::none)
-            .setCustomData(bwChangeDetected)
             .build());
   }
   if (lastAckedPacketSentTime) {

@@ -108,7 +108,7 @@ void Bbr2CongestionController::onPacketAckOrLoss(
   if (ackEvent) {
     // LOG(INFO) << "AckOrLossEvent";
     for (const auto& ack : ackEvent->ackedPackets) {
-      LOG(INFO) << "Ack Data: " << ack.customData;
+    //   LOG(INFO) << "Ack Data: " << ack.customData;
       if (ack.customData == 1) {
         LOG(INFO) << "Custom Data in ACK is 1!";
       }

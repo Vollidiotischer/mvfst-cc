@@ -178,7 +178,7 @@ struct AckEvent {
 
     // Own datatype containing custom data. Can be used for transporting
     // recommended CongesttionWindow based on the Bandwidth
-    uint64_t customData{2};
+    uint64_t customData;
 
     // Metadata of the previously outstanding (now acked) packet
     OutstandingPacketMetadata outstandingPacketMetadata;
