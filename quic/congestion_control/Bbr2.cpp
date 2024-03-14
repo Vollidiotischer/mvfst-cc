@@ -105,7 +105,7 @@ void Bbr2CongestionController::onPacketAckOrLoss(
         bbr2StateToString(state_));
   }
 
-  LOG(INFO) << "AckOrLossEvent";
+  //   LOG(INFO) << "AckOrLossEvent";
 
   if (ackEvent) {
     for (const auto& ack : ackEvent->ackedPackets) {

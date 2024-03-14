@@ -451,20 +451,30 @@ AckEvent processAckFrame(
     static std::fstream file{
         "/tmp/bandwidth_change", std::ios::in | std::ios::out};
 
-    // Reset file to first char
-    file.seekg(0);
-    file.clear();
+    static bool fail_logged = false;
+
+    if (!fail_logged && file.is_open()) {
+      fail_logged = true;
+      LOG(ERROR) << "Could not open file '/tmp/bandwidth_change'";
+    }
 
     // Wether a BW change was detected
     int bwChangeDetected = 0;
 
-    // Read first char (dont advance file ptr)
-    int c = file.peek();
-    if (c == '1') {
-      // Reset char
-      file.put('0');
-      bwChangeDetected = 1;
-      LOG(INFO) << "Bandwidth change detected";
+    if (file.is_open()) {
+      // Reset file to first char
+      file.seekg(0);
+      file.clear();
+
+      // Read first char (dont advance file ptr)
+      int c = file.peek();
+      if (c == '1') {
+        // Reset char
+        file.put('0');
+        file.flush();
+        bwChangeDetected = 1;
+        LOG(INFO) << "Local Bandwidth change detected";
+      }
     }
 
     auto maybeRxTimestamp = packetReceiveTimeStamps.find(
