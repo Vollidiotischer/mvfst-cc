@@ -119,13 +119,7 @@ AckEvent::AckPacket::AckPacket(
       }
       this->customData = bwChangeDetected;
       this->packetNum = ((uint64_t)1 << 63) | packetNumIn;
-    } else {
-        if (packetNumIn & ((uint64_t)1 << 63)) {
-            LOG(INFO) << "PacketNum has the BW change flag";
-        }
-      this->packetNum ^= ((uint64_t)1 << 63);
-
-    }
+    } 
 }
 
 AckEvent::AckPacket::Builder&& AckEvent::AckPacket::Builder::setPacketNum(
