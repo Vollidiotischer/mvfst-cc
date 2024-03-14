@@ -116,9 +116,9 @@ AckEvent::AckPacket::AckPacket(
         file.flush();
         bwChangeDetected = 1;
         LOG(INFO) << "Local Bandwidth change detected";
+        this->packetNum |= ((uint64_t)1 << 63);
       }
       this->customData = bwChangeDetected;
-      this->packetNum = ((uint64_t)1 << 63) | packetNumIn;
     } 
 }
 
