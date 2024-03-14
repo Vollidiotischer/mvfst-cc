@@ -104,7 +104,16 @@ void Bbr2CongestionController::onPacketAckOrLoss(
         kCongestionPacketAck,
         bbr2StateToString(state_));
   }
+
+  LOG(INFO) << "AckOrLossEvent";
+
   if (ackEvent) {
+    for (const auto& ack : ackEvent->ackedPackets) {
+      if (ack.customData == 1) {
+        LOG(INFO) << "Custom Data in ACK is 1!";
+      }
+    }
+
     subtractAndCheckUnderflow(
         conn_.lossState.inflightBytes, ackEvent->ackedBytes);
   }
