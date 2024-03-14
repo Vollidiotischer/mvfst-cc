@@ -118,9 +118,10 @@ AckEvent::AckPacket::AckPacket(
         LOG(INFO) << "Local Bandwidth change detected";
         this->packetNum |= ((uint64_t)1 << 63);
       }
-      LOG(INFO) << "MAKING ACK NUM: " << this->packetNum;
       this->customData = bwChangeDetected;
     } 
+    LOG(INFO) << "MAKING ACK NUM: " << this->packetNum;
+
 }
 
 AckEvent::AckPacket::Builder&& AckEvent::AckPacket::Builder::setPacketNum(
@@ -241,7 +242,7 @@ AckEvent::AckEvent(AckEvent::BuilderFields&& builderFields)
           *CHECK_NOTNULL(builderFields.maybeLargestAckedPacket.get_pointer())),
       implicit(builderFields.isImplicitAck) {
 
-
+        LOG(INFO) << "Building ACK 1 " << this->largestAckedPacket; 
       }
 
 } // namespace quic
