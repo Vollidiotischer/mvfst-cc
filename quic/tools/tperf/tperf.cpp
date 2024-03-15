@@ -33,7 +33,11 @@
 #include "quic/congestion_control/CongestionController.h"
 
 DEFINE_bool(
-    probe_rtt,
+    own_disable_explicit_probing,
+    false,
+    "disables the explicit probing which occurs when the client notifies the server about resource changes");
+DEFINE_bool(
+    own_probe_rtt,
     false,
     "probe RTT (instead of the BW) on notification from client");
 DEFINE_string(host, "::1", "TPerf server hostname/IP");
@@ -240,7 +244,11 @@ class ServerStreamHandler : public quic::QuicSocket::ConnectionSetupCallback,
 
   void onTransportReady() noexcept override {
     // Get handle to CC Algorithm
-    this->congestion_controller = this->sock_->getCongestionControl();
+    // explicit probing can be disabled so that tests
+    // with the original implementation can be performed
+    if (!FLAGS_own_disable_explicit_probing) {
+      this->congestion_controller = this->sock_->getCongestionControl();
+    }
 
     if (FLAGS_max_pacing_rate != std::numeric_limits<uint64_t>::max()) {
       sock_->setMaxPacingRate(FLAGS_max_pacing_rate);
@@ -299,7 +307,7 @@ class ServerStreamHandler : public quic::QuicSocket::ConnectionSetupCallback,
     // Send a message of length 10 to inform about a Resource update
     if (readData->first->length() == 10) {
       if (this->congestion_controller) {
-        if (FLAGS_probe_rtt) {
+        if (FLAGS_own_probe_rtt) {
           this->congestion_controller->availableResourcesUpdatedRTT();
         } else {
           this->congestion_controller->availableResourcesUpdatedBW();
@@ -660,10 +668,10 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
     // resetStream
   }
 
-    /*
-    Not used currently. Was just here for 
-    testing via bidirectional stream
-    */
+  /*
+  Not used currently. Was just here for
+  testing via bidirectional stream
+  */
   void onNewBidirectionalStream(quic::StreamId id) noexcept override {
     LOG(INFO) << "TPerfClient: new bidirectional stream=" << id;
     if (!timerScheduled_) {
@@ -729,8 +737,8 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
   }
 
   void sendBWChangeNotification() {
-
-    while (!this->bw_thread_ready) {}
+    while (!this->bw_thread_ready) {
+    }
 
     LOG(INFO) << "Starting bw thread...";
 

@@ -10,7 +10,6 @@
 #include <chrono>
 #include <utility>
 #include "folly/Optional.h"
-#include <fstream>
 
 namespace quic {
 
@@ -75,19 +74,14 @@ AckEvent::AckPacket::AckPacket(
     folly::Optional<OutstandingPacketWrapper::LastAckedPacketInfo>
         lastAckedPacketInfoIn,
     bool isAppLimitedIn,
-    folly::Optional<std::chrono::microseconds>&& receiveRelativeTimeStampUsec,
-    folly::Optional<uint64_t> customData)
+    folly::Optional<std::chrono::microseconds>&& receiveRelativeTimeStampUsec)
     : packetNum(packetNumIn),
       nonDsrPacketSequenceNumber(nonDsrPacketSequenceNumberIn),
       outstandingPacketMetadata(std::move(outstandingPacketMetadataIn)),
       detailsPerStream(std::move(detailsPerStreamIn)),
       lastAckedPacketInfo(std::move(lastAckedPacketInfoIn)),
       receiveRelativeTimeStampUsec(std::move(receiveRelativeTimeStampUsec)),
-      isAppLimited(isAppLimitedIn),
-      customData(0) { //
-
-
-}
+      isAppLimited(isAppLimitedIn) {}
 
 AckEvent::AckPacket::Builder&& AckEvent::AckPacket::Builder::setPacketNum(
     quic::PacketNum packetNumIn) {
@@ -137,12 +131,6 @@ AckEvent::AckPacket::Builder::setReceiveDeltaTimeStamp(
   return std::move(*this);
 }
 
-AckEvent::AckPacket::Builder&& AckEvent::AckPacket::Builder::setCustomData(
-    uint64_t data) {
-  this->customData = data;
-  return std::move(*this);
-}
-
 AckEvent::AckPacket AckEvent::AckPacket::Builder::build() && {
   CHECK(packetNum.has_value());
   CHECK(outstandingPacketMetadata.has_value());
@@ -154,8 +142,7 @@ AckEvent::AckPacket AckEvent::AckPacket::Builder::build() && {
       std::move(detailsPerStream.value()),
       std::move(lastAckedPacketInfo),
       isAppLimited,
-      std::move(receiveRelativeTimeStampUsec),
-      this->customData);
+      std::move(receiveRelativeTimeStampUsec));
 }
 
 AckEvent::Builder&& AckEvent::Builder::setAckTime(TimePoint ackTimeIn) {
@@ -205,9 +192,6 @@ AckEvent::AckEvent(AckEvent::BuilderFields&& builderFields)
           *CHECK_NOTNULL(builderFields.maybePacketNumberSpace.get_pointer())),
       largestAckedPacket(
           *CHECK_NOTNULL(builderFields.maybeLargestAckedPacket.get_pointer())),
-      implicit(builderFields.isImplicitAck) {
-
-
-      }
+      implicit(builderFields.isImplicitAck) {}
 
 } // namespace quic

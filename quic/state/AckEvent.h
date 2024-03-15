@@ -176,10 +176,6 @@ struct AckEvent {
     quic::PacketNum packetNum;
     uint64_t nonDsrPacketSequenceNumber{0};
 
-    // Own datatype containing custom data. Can be used for transporting
-    // recommended CongesttionWindow based on the Bandwidth
-    uint64_t customData;
-
     // Metadata of the previously outstanding (now acked) packet
     OutstandingPacketMetadata outstandingPacketMetadata;
 
@@ -301,7 +297,6 @@ struct AckEvent {
     bool isAppLimited;
 
     struct Builder {
-      Builder&& setCustomData(uint64_t data);
       Builder&& setPacketNum(quic::PacketNum packetNumIn);
       Builder&& setNonDsrPacketSequenceNumber(
           uint64_t nonDsrPacketSequenceNumberIn);
@@ -327,7 +322,6 @@ struct AckEvent {
           lastAckedPacketInfo;
       folly::Optional<std::chrono::microseconds> receiveRelativeTimeStampUsec;
       bool isAppLimited{false};
-      folly::Optional<uint64_t> customData;
     };
 
    private:
@@ -340,8 +334,7 @@ struct AckEvent {
             lastAckedPacketInfoIn,
         bool isAppLimitedIn,
         folly::Optional<std::chrono::microseconds>&&
-            receiveRelativeTimeStampUsec,
-        folly::Optional<uint64_t> customData);
+            receiveRelativeTimeStampUsec);
   };
 
   // Information about each packet ACKed during this event
