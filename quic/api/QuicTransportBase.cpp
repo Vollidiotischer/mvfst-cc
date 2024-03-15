@@ -3422,6 +3422,10 @@ void QuicTransportBase::setCongestionControl(CongestionControlType type) {
   }
 }
 
+CongestionController* QuicTransportBase::getCongestionControl() {
+  return conn_->congestionController.get();
+}
+
 void QuicTransportBase::addPacketProcessor(
     std::shared_ptr<PacketProcessor> packetProcessor) {
   DCHECK(conn_);

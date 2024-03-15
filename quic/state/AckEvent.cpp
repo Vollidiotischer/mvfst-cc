@@ -86,41 +86,6 @@ AckEvent::AckPacket::AckPacket(
       isAppLimited(isAppLimitedIn),
       customData(0) { //
 
-    /*
-    Read from the file to check if a change in the available resources was
-    detected and if so send it in the ack (and maybe reset it in the file)
-    */
-    static std::fstream file{
-        "/tmp/bandwidth_change", std::ios::in | std::ios::out};
-
-    static bool fail_logged = false;
-
-    if (!fail_logged && file.is_open()) {
-      fail_logged = true;
-      LOG(ERROR) << "Could not open file '/tmp/bandwidth_change'";
-    }
-
-    // Wether a BW change was detected
-    int bwChangeDetected = 0;
-
-    if (file.is_open()) {
-      // Reset file to first char
-      file.seekg(0);
-      file.clear();
-
-      // Read first char (dont advance file ptr)
-      int c = file.peek();
-      if (c == '1') {
-        // Reset char
-        file.put('0');
-        file.flush();
-        bwChangeDetected = 1;
-        LOG(INFO) << "Local Bandwidth change detected";
-        this->packetNum |= ((uint64_t)1 << 63);
-      }
-      this->customData = bwChangeDetected;
-    } 
-    LOG(INFO) << "MAKING ACK NUM: " << this->packetNum;
 
 }
 
@@ -242,7 +207,7 @@ AckEvent::AckEvent(AckEvent::BuilderFields&& builderFields)
           *CHECK_NOTNULL(builderFields.maybeLargestAckedPacket.get_pointer())),
       implicit(builderFields.isImplicitAck) {
 
-        LOG(INFO) << "Building ACK 1 " << this->largestAckedPacket; 
+
       }
 
 } // namespace quic

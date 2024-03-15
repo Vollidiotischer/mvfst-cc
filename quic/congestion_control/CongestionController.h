@@ -116,6 +116,9 @@ struct CongestionController {
    */
   FOLLY_NODISCARD virtual uint64_t getCongestionWindow() const = 0;
 
+  virtual void availableResourcesUpdatedBW() {}
+  virtual void availableResourcesUpdatedRTT() {}
+
   /**
    * Return the congestion controller's bandwidth estimate, if available.
    *

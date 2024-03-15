@@ -29,7 +29,13 @@
 #include <quic/tools/tperf/TperfDSRSender.h>
 #include <quic/tools/tperf/TperfQLogger.h>
 #include <memory>
+#include <thread>
+#include "quic/congestion_control/CongestionController.h"
 
+DEFINE_bool(
+    probe_rtt,
+    false,
+    "probe RTT (instead of the BW) on notification from client");
 DEFINE_string(host, "::1", "TPerf server hostname/IP");
 DEFINE_int32(port, 6666, "TPerf server port");
 DEFINE_string(mode, "server", "Mode to run in: 'client' or 'server'");
@@ -233,6 +239,9 @@ class ServerStreamHandler : public quic::QuicSocket::ConnectionSetupCallback,
   }
 
   void onTransportReady() noexcept override {
+    // Get handle to CC Algorithm
+    this->congestion_controller = this->sock_->getCongestionControl();
+
     if (FLAGS_max_pacing_rate != std::numeric_limits<uint64_t>::max()) {
       sock_->setMaxPacingRate(FLAGS_max_pacing_rate);
     }
@@ -248,9 +257,11 @@ class ServerStreamHandler : public quic::QuicSocket::ConnectionSetupCallback,
       return;
     }
     auto stream = sock_->createUnidirectionalStream();
+    // auto stream = sock_->createBidirectionalStream();
     VLOG(5) << "New Stream with id = " << stream.value();
     CHECK(stream.hasValue());
     bytesPerStream_[stream.value()] = 0;
+    this->sock_->setReadCallback(stream.value(), this);
     notifyDataForStream(stream.value());
   }
 
@@ -269,6 +280,34 @@ class ServerStreamHandler : public quic::QuicSocket::ConnectionSetupCallback,
 
   void readAvailable(quic::StreamId id) noexcept override {
     LOG(INFO) << "read available for stream id=" << id;
+    auto readData = this->sock_->read(id, 0);
+    if (readData.hasError()) {
+      LOG(FATAL) << "TPerfClient failed read from stream=" << id
+                 << ", error=" << (uint32_t)readData.error();
+    }
+    LOG(INFO) << "GOT DATA OF LENGTH: " << readData->first->length();
+    LOG(INFO) << "CC TYPE: "
+              << congestionControlTypeToString(
+                     this->sock_->getTransportInfo().congestionControlType);
+    const auto& a = this->sock_->getTransportInfo().maybeCCState;
+    if (a.has_value()) {
+      if (a->maybeBandwidthBitsPerSec.has_value()) {
+        LOG(INFO) << "CC STATE: " << a->maybeBandwidthBitsPerSec.value();
+      }
+    }
+
+    // Send a message of length 10 to inform about a Resource update
+    if (readData->first->length() == 10) {
+      if (this->congestion_controller) {
+        if (FLAGS_probe_rtt) {
+          this->congestion_controller->availableResourcesUpdatedRTT();
+        } else {
+          this->congestion_controller->availableResourcesUpdatedBW();
+        }
+      } else {
+        LOG(INFO) << "Cant Access Congestion Controller!";
+      }
+    }
   }
 
   void readError(quic::StreamId id, QuicError error) noexcept override {
@@ -362,6 +401,7 @@ class ServerStreamHandler : public quic::QuicSocket::ConnectionSetupCallback,
   std::unordered_map<quic::StreamId, uint64_t> bytesPerStream_;
   std::set<quic::StreamId> streamsHavingDSRSender_;
   bool dsrEnabled_;
+  CongestionController* congestion_controller;
 };
 
 class TPerfServerTransportFactory : public quic::QuicServerTransportFactory {
@@ -537,6 +577,29 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
     fEvb_.setName("tperf_client");
   }
 
+  void notifyDataForStream(quic::StreamId id) {
+    qEvb_->runInEventBaseThread([&, id]() {
+      if (!this->quicClient_) {
+        VLOG(5) << "notifyDataForStream(" << id << "): socket is closed.";
+        return;
+      }
+      auto res = this->quicClient_->notifyPendingWriteOnStream(id, this);
+      if (res.hasError()) {
+        LOG(FATAL) << quic::toString(res.error());
+      }
+    });
+  }
+
+  void regularSend(quic::StreamId id, uint64_t toSend, bool eof) {
+    auto sendBuffer = buf_->clone();
+    sendBuffer->append(toSend);
+    auto res =
+        this->quicClient_->writeChain(id, std::move(sendBuffer), eof, nullptr);
+    if (res.hasError()) {
+      LOG(FATAL) << "Got error on write: " << quic::toString(res.error());
+    }
+  }
+
   void timeoutExpired() noexcept override {
     quicClient_->closeNow(folly::none);
     constexpr double bytesPerMegabit = 131072;
@@ -597,9 +660,21 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
     // resetStream
   }
 
+    /*
+    Not used currently. Was just here for 
+    testing via bidirectional stream
+    */
   void onNewBidirectionalStream(quic::StreamId id) noexcept override {
     LOG(INFO) << "TPerfClient: new bidirectional stream=" << id;
+    if (!timerScheduled_) {
+      timerScheduled_ = true;
+      fEvb_.timer().scheduleTimeout(this, duration_);
+    }
     quicClient_->setReadCallback(id, this);
+    receivedStreams_++;
+    this->bidirectioal_stream_id = id;
+    buf_ = folly::IOBuf::createCombined(FLAGS_block_size);
+    this->notifyDataForStream(id);
   }
 
   void onNewUnidirectionalStream(quic::StreamId id) noexcept override {
@@ -610,6 +685,12 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
     }
     quicClient_->setReadCallback(id, this);
     receivedStreams_++;
+
+    buf_ = folly::IOBuf::createCombined(FLAGS_block_size);
+    auto stream = this->quicClient_->createUnidirectionalStream();
+    this->own_unidirectional_stream_id = stream.value();
+    this->quicClient_->setReadCallback(stream.value(), this);
+    this->notifyDataForStream(this->own_unidirectional_stream_id);
   }
 
   void onTransportReady() noexcept override {
@@ -624,6 +705,8 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
 
   void onConnectionEnd() noexcept override {
     LOG(INFO) << "TPerfClient connection end";
+
+    this->bw_thread_running = false;
 
     fEvb_.terminateLoopSoon();
   }
@@ -641,6 +724,54 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
       override {
     LOG(INFO) << "TPerfClient stream" << id
               << " is write ready with maxToSend=" << maxToSend;
+
+    this->bw_thread_ready = true;
+  }
+
+  void sendBWChangeNotification() {
+
+    while (!this->bw_thread_ready) {}
+
+    LOG(INFO) << "Starting bw thread...";
+
+    /*
+    Read from the file to check if a change in the available resources was
+    detected and if so send it in the ack (and maybe reset it in the file)
+    */
+    static std::fstream file{
+        "/tmp/bandwidth_change", std::ios::in | std::ios::out};
+
+    static bool fail_logged = false;
+
+    if (!fail_logged && !file.is_open()) {
+      fail_logged = true;
+      LOG(ERROR) << "Could not open file '/tmp/bandwidth_change'";
+    }
+
+    while (this->bw_thread_running) {
+      // Wether a BW change was detected
+      int bwChangeDetected = 0;
+
+      if (file.is_open()) {
+        // Reset file to first char
+        file.seekg(0);
+        file.clear();
+
+        // Read first char (dont advance file ptr)
+        int c = file.peek();
+        if (c == '1') {
+          // Reset char
+          file.put('0');
+          file.flush();
+          bwChangeDetected = 1;
+          LOG(INFO) << "Local Bandwidth change detected";
+          uint64_t toSend = std::min<uint64_t>(10, FLAGS_block_size);
+          this->regularSend(this->own_unidirectional_stream_id, toSend, false);
+          this->notifyDataForStream(this->own_unidirectional_stream_id);
+        }
+      }
+      std::this_thread::sleep_for(10ms);
+    }
   }
 
   void onStreamWriteError(quic::StreamId id, QuicError error) noexcept
@@ -709,12 +840,18 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
 
     LOG(INFO) << "TPerfClient connecting to " << addr.describe();
     quicClient_->start(this, this);
+
+    this->bw_change_thread =
+        std::thread(&TPerfClient::sendBWChangeNotification, this);
+
     fEvb_.loopForever();
+    this->bw_change_thread.join();
   }
 
   ~TPerfClient() override = default;
 
  private:
+  std::unique_ptr<folly::IOBuf> buf_;
   bool timerScheduled_{false};
   std::string host_;
   uint16_t port_;
@@ -735,6 +872,11 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
   quic::CongestionControlType congestionControlType_;
   uint32_t maxReceivePacketSize_;
   bool useInplaceWrite_{false};
+  uint64_t bidirectioal_stream_id{0}; // unused
+  uint64_t own_unidirectional_stream_id{0};
+  std::thread bw_change_thread;
+  bool bw_thread_running{true};
+  volatile bool bw_thread_ready{false};
 };
 
 } // namespace tperf

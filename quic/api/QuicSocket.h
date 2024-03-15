@@ -28,6 +28,7 @@
 
 #include <folly/Portability.h>
 #include <chrono>
+#include "quic/congestion_control/CongestionController.h"
 
 namespace quic {
 
@@ -1301,6 +1302,12 @@ class QuicSocket {
    * Set congestion control type.
    */
   virtual void setCongestionControl(CongestionControlType type) = 0;
+
+  virtual CongestionController* getCongestionControl() {
+    LOG(INFO) << "BBR2 NOT SELECTED! Cant work with CC Algorithm!";
+    return nullptr;
+  }
+
 
   /**
    * Add a packet processor

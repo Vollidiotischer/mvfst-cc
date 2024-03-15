@@ -69,6 +69,16 @@ void Bbr2CongestionController::onRemoveBytesFromInflight(
   subtractAndCheckUnderflow(conn_.lossState.inflightBytes, bytesToRemove);
 }
 
+void Bbr2CongestionController::availableResourcesUpdatedBW() {
+  LOG(INFO) << "PROBING BW...";
+  this->enterProbeBW();
+}
+
+void Bbr2CongestionController::availableResourcesUpdatedRTT() {
+  LOG(INFO) << "PROBING RTT...";
+  this->enterProbeRtt();
+}
+
 void Bbr2CongestionController::onPacketSent(
     const OutstandingPacketWrapper& packet) {
   // Handle restart from idle
@@ -106,17 +116,6 @@ void Bbr2CongestionController::onPacketAckOrLoss(
   }
 
   if (ackEvent) {
-    // LOG(INFO) << "AckOrLossEvent";
-    for (const auto& ack : ackEvent->ackedPackets) {
-    //   LOG(INFO) << "Ack Data: " << ack.customData;
-    //   if (ack.packetNum & ((uint64_t)1 << 63)) {
-    //     LOG(INFO) << "Custom Data in ACK is 1!";
-    //   }
-        LOG(INFO) << "ACK NUM: " << ack.packetNum;
-      if (ack.customData == 1) {
-        LOG(INFO) << "Custom Data in ACK is 1!";
-      }
-    }
 
     subtractAndCheckUnderflow(
         conn_.lossState.inflightBytes, ackEvent->ackedBytes);
@@ -348,6 +347,7 @@ void Bbr2CongestionController::restoreCwnd() {
   VLOG(6) << "Restored cwnd: " << cwndBytes_;
 }
 void Bbr2CongestionController::exitProbeRtt() {
+  LOG(INFO) << "Exiting Probe Rtt";
   resetLowerBounds();
   if (filledPipe_) {
     startProbeBwDown();
