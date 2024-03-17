@@ -5,6 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <gflags/gflags.h>
 #include <quic/congestion_control/Bbr2.h>
 
 #include <quic/congestion_control/CongestionControlFunctions.h>
@@ -15,6 +16,8 @@
 #include <limits>
 
 namespace quic {
+
+DEFINE_bool(own_log_state, false, "wether to log the state on every change");
 
 constexpr uint64_t kMaxBwFilterLen = 2; // Measured in number of ProbeBW cycles
 constexpr std::chrono::microseconds kMinRttFilterLen = 10s;
@@ -70,13 +73,18 @@ void Bbr2CongestionController::onRemoveBytesFromInflight(
 }
 
 void Bbr2CongestionController::availableResourcesUpdatedBW() {
-  LOG(INFO) << "PROBING BW...";
-  this->enterProbeBW();
+  LOG(INFO) << "DRAINING & PROBING BW";
+  this->should_probe_bw = true;
+  enterDrain();
+
+  //   this->enterProbeBW();
 }
 
 void Bbr2CongestionController::availableResourcesUpdatedRTT() {
-  LOG(INFO) << "PROBING RTT...";
-  this->enterProbeRtt();
+  LOG(INFO) << "DRAINING & PROBING RTT";
+  this->should_probe_rtt = true;
+  enterDrain();
+  //   this->enterProbeRtt();
 }
 
 void Bbr2CongestionController::onPacketSent(
@@ -116,7 +124,6 @@ void Bbr2CongestionController::onPacketAckOrLoss(
   }
 
   if (ackEvent) {
-
     subtractAndCheckUnderflow(
         conn_.lossState.inflightBytes, ackEvent->ackedBytes);
   }
@@ -247,6 +254,10 @@ void Bbr2CongestionController::resetLowerBounds() {
 }
 void Bbr2CongestionController::enterStartup() {
   state_ = State::Startup;
+  if (FLAGS_own_log_state) {
+    LOG(INFO) << "BBR2 State: " << bbr2StateToString(this->getState());
+  }
+
   updatePacingAndCwndGain();
 }
 
@@ -495,6 +506,9 @@ void Bbr2CongestionController::checkStartupHighLoss() {
 
 void Bbr2CongestionController::enterDrain() {
   state_ = State::Drain;
+  if (FLAGS_own_log_state) {
+    LOG(INFO) << "BBR2 State: " << bbr2StateToString(this->getState());
+  }
   updatePacingAndCwndGain();
 }
 
@@ -506,6 +520,16 @@ void Bbr2CongestionController::checkDrain() {
   if (state_ == State::Drain &&
       conn_.lossState.inflightBytes <= getTargetInflightWithGain(1.0)) {
     enterProbeBW(); /* BBR estimates the queue was drained */
+  }
+
+  if (this->should_probe_bw) {
+    this->enterProbeBW();
+    this->should_probe_bw = false;
+  }
+
+  if (this->should_probe_rtt) {
+    this->enterProbeRtt();
+    this->should_probe_rtt = false;
   }
 }
 void Bbr2CongestionController::updateProbeBwCyclePhase(
@@ -717,6 +741,9 @@ void Bbr2CongestionController::checkProbeRtt(uint64_t ackedBytes) {
 
 void Bbr2CongestionController::enterProbeRtt() {
   state_ = State::ProbeRTT;
+  if (FLAGS_own_log_state) {
+    LOG(INFO) << "BBR2 State: " << bbr2StateToString(this->getState());
+  }
   updatePacingAndCwndGain();
 }
 
@@ -843,6 +870,9 @@ void Bbr2CongestionController::startProbeBwDown() {
 
   probeBWCycleStart_ = Clock::now();
   state_ = State::ProbeBw_Down;
+  if (FLAGS_own_log_state) {
+    LOG(INFO) << "BBR2 State: " << bbr2StateToString(this->getState());
+  }
   updatePacingAndCwndGain();
   startRound();
 
@@ -854,6 +884,9 @@ void Bbr2CongestionController::startProbeBwDown() {
 }
 void Bbr2CongestionController::startProbeBwCruise() {
   state_ = State::ProbeBw_Cruise;
+  if (FLAGS_own_log_state) {
+    LOG(INFO) << "BBR2 State: " << bbr2StateToString(this->getState());
+  }
   updatePacingAndCwndGain();
 }
 
@@ -862,12 +895,18 @@ void Bbr2CongestionController::startProbeBwRefill() {
   probeUpRounds_ = 0;
   probeUpAcks_ = 0;
   state_ = State::ProbeBw_Refill;
+  if (FLAGS_own_log_state) {
+    LOG(INFO) << "BBR2 State: " << bbr2StateToString(this->getState());
+  }
   updatePacingAndCwndGain();
   startRound();
 }
 void Bbr2CongestionController::startProbeBwUp() {
   probeBWCycleStart_ = Clock::now();
   state_ = State::ProbeBw_Up;
+  if (FLAGS_own_log_state) {
+    LOG(INFO) << "BBR2 State: " << bbr2StateToString(this->getState());
+  }
   updatePacingAndCwndGain();
   startRound();
   raiseInflightHiSlope();

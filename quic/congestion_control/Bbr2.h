@@ -205,6 +205,9 @@ class Bbr2CongestionController : public CongestionController {
   bool bwProbeShouldHandleLoss_{false};
   uint64_t probeUpRounds_{0};
   uint64_t probeUpAcks_{0};
+
+  bool should_probe_rtt{false};
+  bool should_probe_bw{false};
 };
 
 std::string bbr2StateToString(Bbr2CongestionController::State state);
