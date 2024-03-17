@@ -358,7 +358,6 @@ void Bbr2CongestionController::restoreCwnd() {
   VLOG(6) << "Restored cwnd: " << cwndBytes_;
 }
 void Bbr2CongestionController::exitProbeRtt() {
-  LOG(INFO) << "Exiting Probe Rtt";
   resetLowerBounds();
   if (filledPipe_) {
     startProbeBwDown();
