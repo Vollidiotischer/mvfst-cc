@@ -523,13 +523,13 @@ void Bbr2CongestionController::checkDrain() {
   }
 
   if (this->should_probe_bw) {
-    this->enterProbeBW();
     this->should_probe_bw = false;
+    this->enterProbeBW();
   }
 
   if (this->should_probe_rtt) {
-    this->enterProbeRtt();
     this->should_probe_rtt = false;
+    this->enterProbeRtt();
   }
 }
 void Bbr2CongestionController::updateProbeBwCyclePhase(
