@@ -4,6 +4,40 @@
 [![macOS Build Status](https://github.com/facebook/mvfst/actions/workflows/getdeps_mac.yml/badge.svg)](https://github.com/facebook/mvfst/actions/workflows/getdeps_mac.yml)
 [![Windows Build Status](https://github.com/facebook/mvfst/actions/workflows/getdeps_windows.yml/badge.svg)](https://github.com/facebook/mvfst/actions/workflows/getdeps_windows.yml)
 
+## Usage of tperf including custom adjustments & Other infos    
+##### Custom tperf flags
+* Important Command-Line-Flags: (Set at server) 
+	* **-own_log_state**: if set, prints each time the Congestion Control (In case of BBR2) enters a new state
+	* **-own_disable_explicit_probing**: if set, disables the custom transition/state change into drain & probe BW/RTT upon receiving a resource-change message (May print "Cant Access Congestion Controller!". Can be ignored in this case) 
+	* **-own_probe_rtt**: if set, goes into the probeRTT-state instead of probeBW-state after draining
+	e.g. 
+        * for testing the BW-probe state, set no flags
+        * for testing the RTT-probe state, set the -own_probe_rtt flag
+        * for testing the original BBR2 implementation, set the -own_disable_explicit_probing flag
+
+In the implementation, the Client will scan the /tmp/bandwidth_change file every 10ms for a 1 as the first character. If set, it will set it to a 0 and send a 10-byte message to the Server, which will react and change the state of the BBR2 algorithm to the one specified via the command line flags (Drain & probeBW by default). 
+
+##### Usage of tperf
+To perform a measurement run:
+* Server    
+    ```LD_PRELOAD=<PATH_TO_GLOG_LIB> ./tperf -mode=server -host=0.0.0.0 -congestion=bbr2 -pacing -duration=<DURATION> -server_qlogger_path=<WHERE_TO_PUT_QLOGS> -own_probe_rtt``` 
+	(Here you can also add the custom Flags (e.g. `-own_probe_rtt`/`-own_disable_explicit_probing`))
+    With PATH_TO_GLOG_LIB being ../../glog-\<AUTOCOMPLETE\>/lib/libglog.so 
+    (This is because the linking doesn't quite work for the glog lib)
+    (qlogs can be visualized with the qviz tool (https://qvis.quictools.info))
+<br>
+* Client 
+    ```LD_PRELOAD=<PATH_TO_GLOG_LIB> ./tperf -mode=client -host=<SERVER_IP> -duration=<DURATION>```
+<br>  
+##### Changes in the Code
+The most important changes in the code (apart from infrastructure to enable these changes) were: 
+* The File-Reader, starting at tperf.cpp:739
+* The handling of the notification, at tperf.cpp:308
+* The new states in BBR2, at Bbr2.cpp:75 
+
+<br>
+<br>
+
 ## Introduction
 `mvfst` (Pronounced *move fast*) is a client and server implementation of [IETF QUIC](https://quicwg.org/) protocol in C++ by Facebook. QUIC is a UDP based reliable, multiplexed transport protocol that will become an internet standard. The goal of `mvfst` is to build a performant implementation of the QUIC transport protocol that applications could adapt for use cases on both the internet and the data-center. `mvfst` has been tested at scale on android, iOS apps, as well as servers and has several features to support large scale deployments.
 
