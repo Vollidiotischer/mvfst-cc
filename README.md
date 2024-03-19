@@ -26,8 +26,9 @@ To perform a measurement run:
     (This is because the linking doesn't quite work for the glog lib)
     (qlogs can be visualized with the qviz tool (https://qvis.quictools.info))
 <br>
+
 * Client 
-    ```LD_PRELOAD=<PATH_TO_GLOG_LIB> ./tperf -mode=client -host=<SERVER_IP> -duration=<DURATION>```
+    ```LD_PRELOAD=<PATH_TO_GLOG_LIB> ./tperf -mode=client -host=<SERVER_IP> -duration=<DURATION> ```
 <br>  
 
 ##### Changes in the Code
