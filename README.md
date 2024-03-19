@@ -29,6 +29,7 @@ To perform a measurement run:
 * Client 
     ```LD_PRELOAD=<PATH_TO_GLOG_LIB> ./tperf -mode=client -host=<SERVER_IP> -duration=<DURATION>```
 <br>  
+
 ##### Changes in the Code
 The most important changes in the code (apart from infrastructure to enable these changes) were: 
 * The File-Reader, starting at tperf.cpp:739
