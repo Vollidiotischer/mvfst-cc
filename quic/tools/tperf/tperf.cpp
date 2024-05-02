@@ -28,8 +28,11 @@
 #include <quic/tools/tperf/PacingObserver.h>
 #include <quic/tools/tperf/TperfDSRSender.h>
 #include <quic/tools/tperf/TperfQLogger.h>
+#include <cstdint>
 #include <memory>
+#include <string>
 #include <thread>
+#include "folly/String.h"
 #include "quic/congestion_control/CongestionController.h"
 
 DEFINE_bool(
@@ -304,8 +307,19 @@ class ServerStreamHandler : public quic::QuicSocket::ConnectionSetupCallback,
       }
     }
 
-    // Send a message of length 10 to inform about a Resource update
-    if (readData->first->length() == 10) {
+    // If a Message (of length 4) was received, decode the bw and tell the
+    // congestion controller
+    if (readData->first->length() == 4) {
+      // Decode the data from the buf
+      const uint8_t* readBuf = readData->first->data();
+      uint16_t old_bw = (readBuf[0] << 8) | readBuf[1];
+      uint16_t new_bw = (readBuf[2] << 8) | readBuf[3];
+
+      LOG(INFO) << "OLD BW: " << old_bw << "    NEW BW: " << new_bw;
+
+      double bw_change_factor =
+          static_cast<double>(new_bw) / static_cast<double>(old_bw);
+
       if (this->congestion_controller) {
         if (FLAGS_own_probe_rtt) {
           this->congestion_controller->availableResourcesUpdatedRTT();
@@ -598,9 +612,26 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
     });
   }
 
-  void regularSend(quic::StreamId id, uint64_t toSend, bool eof) {
+  void regularSend(
+      quic::StreamId id,
+      uint64_t toSend,
+      bool eof,
+      uint16_t old_bw,
+      uint16_t new_bw) {
     auto sendBuffer = buf_->clone();
-    sendBuffer->append(toSend);
+
+    // Allocate space for 2 * u16 = 4 Byte
+    sendBuffer->append(4);
+
+    // Encode data in the sendBuffer
+    sendBuffer->unshare();
+    uint8_t* buf = sendBuffer->writableBuffer();
+    buf[0] = (old_bw >> 8) & 0xFF;
+    buf[1] = old_bw & 0xFF;
+
+    buf[2] = (new_bw >> 8) & 0xFF;
+    buf[3] = new_bw & 0xFF;
+
     auto res =
         this->quicClient_->writeChain(id, std::move(sendBuffer), eof, nullptr);
     if (res.hasError()) {
@@ -768,16 +799,44 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
         // Read first char (dont advance file ptr)
         int c = file.peek();
         if (c == '1') {
+          // file.put('0');
+          // file.flush();
+
+          std::string line;
+          if (!std::getline(file, line)) {
+            LOG(ERROR)
+                << "Flag was 1 in /tmp/bandwidth_change but no line was found!";
+            goto abort;
+          }
+
           // Reset char
+          file.seekp(0);
           file.put('0');
           file.flush();
+          std::vector<std::string> parts;
+          folly::split('|', line, parts);
+
+          if (parts.size() != 3) {
+            LOG(ERROR) << "Contents of file have unexpected format (" << line
+                       << ")";
+            goto abort;
+          }
+
           bwChangeDetected = 1;
+          uint16_t old_bw = std::stoi(parts[1]);
+          uint16_t new_bw = std::stoi(parts[2]);
           LOG(INFO) << "Local Bandwidth change detected";
-          uint64_t toSend = std::min<uint64_t>(10, FLAGS_block_size);
-          this->regularSend(this->own_unidirectional_stream_id, toSend, false);
+          uint64_t toSend = std::min<uint64_t>(4, FLAGS_block_size);
+          this->regularSend(
+              this->own_unidirectional_stream_id,
+              toSend,
+              false,
+              old_bw,
+              new_bw);
           this->notifyDataForStream(this->own_unidirectional_stream_id);
         }
       }
+    abort:
       std::this_thread::sleep_for(10ms);
     }
   }
