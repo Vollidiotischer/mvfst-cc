@@ -71,19 +71,42 @@ inline uint64_t calculateMaximumData(const QuicStreamState& stream) {
 }
 } // namespace
 
+void maybeIncreaseFlowControlWindow(
+    const folly::Optional<TimePoint>& timeOfLastFlowControlUpdate,
+    TimePoint updateTime,
+    std::chrono::microseconds srtt,
+    uint64_t& windowSize) {
+  if (!timeOfLastFlowControlUpdate || srtt == 0us) {
+    return;
+  }
+  CHECK(updateTime > *timeOfLastFlowControlUpdate);
+  if (std::chrono::duration_cast<decltype(srtt)>(
+          updateTime - *timeOfLastFlowControlUpdate) < 2 * srtt) {
+    VLOG(10) << "doubling flow control window";
+    windowSize *= 2;
+  }
+}
+
 void maybeIncreaseConnectionFlowControlWindow(
     QuicConnectionStateBase::ConnectionFlowControlState& flowControlState,
     TimePoint updateTime,
     std::chrono::microseconds srtt) {
-  if (!flowControlState.timeOfLastFlowControlUpdate || srtt == 0us) {
-    return;
-  }
-  CHECK(updateTime > *flowControlState.timeOfLastFlowControlUpdate);
-  if (std::chrono::duration_cast<decltype(srtt)>(
-          updateTime - *flowControlState.timeOfLastFlowControlUpdate) <
-      2 * srtt) {
-    flowControlState.windowSize *= 2;
-  }
+  maybeIncreaseFlowControlWindow(
+      flowControlState.timeOfLastFlowControlUpdate,
+      updateTime,
+      srtt,
+      flowControlState.windowSize);
+}
+
+void maybeIncreaseStreamFlowControlWindow(
+    QuicStreamState::StreamFlowControlState& flowControlState,
+    TimePoint updateTime,
+    std::chrono::microseconds srtt) {
+  maybeIncreaseFlowControlWindow(
+      flowControlState.timeOfLastFlowControlUpdate,
+      updateTime,
+      srtt,
+      flowControlState.windowSize);
 }
 
 bool maybeSendConnWindowUpdate(
@@ -256,10 +279,24 @@ void maybeWriteBlockAfterSocketWrite(QuicStreamState& stream) {
   if (stream.finalWriteOffset && stream.hasSentFIN()) {
     return;
   }
-  if (getSendStreamFlowControlBytesWire(stream) == 0 &&
-      (!stream.writeBuffer.empty() || stream.writeBufMeta.length > 0)) {
+
+  bool shouldEmitStreamBlockedFrame = false;
+  if (stream.conn.transportSettings.useNewStreamBlockedCondition) {
+    // If we've exhausted the flow control window after the write, emit a
+    // preemptive stream blocked frame.
+    shouldEmitStreamBlockedFrame =
+        getSendStreamFlowControlBytesWire(stream) == 0;
+  } else {
+    shouldEmitStreamBlockedFrame =
+        getSendStreamFlowControlBytesWire(stream) == 0 &&
+        (!stream.writeBuffer.empty() || stream.writeBufMeta.length > 0);
+  }
+
+  if (shouldEmitStreamBlockedFrame &&
+      !stream.flowControlState.pendingBlockedFrame) {
     stream.conn.streamManager->queueBlocked(
         stream.id, stream.flowControlState.peerAdvertisedMaxOffset);
+    stream.flowControlState.pendingBlockedFrame = true;
     if (stream.conn.qLogger) {
       stream.conn.qLogger->addTransportStateUpdate(
           getFlowControlEvent(stream.flowControlState.peerAdvertisedMaxOffset));
@@ -274,6 +311,7 @@ void handleStreamWindowUpdate(
     PacketNum packetNum) {
   if (stream.flowControlState.peerAdvertisedMaxOffset <= maximumData) {
     stream.flowControlState.peerAdvertisedMaxOffset = maximumData;
+    stream.flowControlState.pendingBlockedFrame = false;
     if (stream.flowControlState.peerAdvertisedMaxOffset >
         stream.currentWriteOffset + stream.writeBuffer.chainLength() +
             stream.writeBufMeta.length) {
@@ -310,6 +348,10 @@ void handleConnBlocked(QuicConnectionStateBase& conn) {
 }
 
 void handleStreamBlocked(QuicStreamState& stream) {
+  if (stream.conn.transportSettings.autotuneReceiveStreamFlowControl) {
+    maybeIncreaseStreamFlowControlWindow(
+        stream.flowControlState, Clock::now(), stream.conn.lossState.srtt);
+  }
   stream.conn.streamManager->queueWindowUpdate(stream.id);
   VLOG(4) << "Blocked triggered stream window update stream=" << stream.id;
 }

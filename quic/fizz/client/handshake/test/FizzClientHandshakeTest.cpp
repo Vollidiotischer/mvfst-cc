@@ -23,7 +23,6 @@
 #include <folly/io/async/SSLContext.h>
 #include <folly/io/async/ScopedEventBaseThread.h>
 #include <folly/io/async/test/MockAsyncTransport.h>
-#include <folly/ssl/Init.h>
 
 #include <quic/client/handshake/ClientTransportParametersExtension.h>
 #include <quic/client/state/ClientStateMachine.h>
@@ -74,7 +73,6 @@ class ClientHandshakeTest : public Test, public boost::static_visitor<> {
   }
 
   void SetUp() override {
-    folly::ssl::init();
     dg.reset(new DelayedHolder());
     serverCtx = ::quic::test::createServerCtx();
     serverCtx->setECHDecrypter(getECHDecrypter());
@@ -296,6 +294,27 @@ class ClientHandshakeTest : public Test, public boost::static_visitor<> {
   std::shared_ptr<fizz::client::FizzClientContext> clientCtx;
   std::shared_ptr<fizz::server::FizzServerContext> serverCtx;
 };
+
+TEST_F(ClientHandshakeTest, TestGetExportedKeyingMaterial) {
+  // Sanity check. getExportedKeyingMaterial () should return nullptr prior to
+  // an handshake.
+  auto ekm = handshake->getExportedKeyingMaterial(
+      "EXPORTER-Some-Label", folly::none, 32);
+  EXPECT_TRUE(!ekm.has_value());
+
+  clientServerRound();
+  serverClientRound();
+  handshake->handshakeConfirmed();
+  ekm = handshake->getExportedKeyingMaterial(
+      "EXPORTER-Some-Label", folly::none, 32);
+  ASSERT_TRUE(ekm.has_value());
+  EXPECT_EQ(ekm->size(), 32);
+
+  ekm = handshake->getExportedKeyingMaterial(
+      "EXPORTER-Some-Label", folly::ByteRange(), 32);
+  ASSERT_TRUE(ekm.has_value());
+  EXPECT_EQ(ekm->size(), 32);
+}
 
 TEST_F(ClientHandshakeTest, TestHandshakeSuccess) {
   EXPECT_CALL(*verifier, verify(_));

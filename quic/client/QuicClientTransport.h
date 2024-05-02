@@ -111,10 +111,10 @@ class QuicClientTransport
    * context is the context value argument for the TLS exporter.
    * keyLength is the length of the exported key.
    */
-  virtual std::unique_ptr<std::vector<unsigned char>> getExportedKeyingMaterial(
+  folly::Optional<std::vector<uint8_t>> getExportedKeyingMaterial(
       const std::string& label,
-      const std::vector<unsigned char>* context,
-      uint16_t keyLength) {
+      const folly::Optional<folly::ByteRange>& context,
+      uint16_t keyLength) const override {
     return clientConn_->clientHandshakeLayer->getExportedKeyingMaterial(
         label, context, keyLength);
   }
@@ -200,6 +200,9 @@ class QuicClientTransport
     bufAccessor_ = std::make_unique<SimpleBufAccessor>(capacity);
     conn_->bufAccessor = bufAccessor_.get();
   }
+
+  folly::Optional<std::vector<TransportParameter>> getPeerTransportParams()
+      const override;
 
   class HappyEyeballsConnAttemptDelayTimeout : public QuicTimerCallback {
    public:
@@ -314,7 +317,8 @@ class QuicClientTransport
   };
 
   void adjustGROBuffers();
-  void trackDatagramReceived(size_t len);
+  void maybeQlogDatagram(size_t len);
+  void trackDatagramsReceived(uint32_t totalPackets, uint32_t totalPacketLen);
 
   /**
    * Send quic transport knobs defined by transportSettings.knobs to peer. This

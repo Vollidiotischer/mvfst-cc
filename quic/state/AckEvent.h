@@ -19,32 +19,6 @@ struct AckEvent {
   struct AckPacket;
 
   /**
-   * Returns the AckPacket associated with the AckEvent's RttSample.
-   *
-   * Can be used to get packet metadata, including send time, app limited state,
-   * and other aspects. For RTT measurements, this can be used to determine the
-   * number of packets / bytes inflight at the time the corresponding packet was
-   * sent, which in turn can be used to infer whether the RTT measurement could
-   * have been subject to self-induced congestion.
-   *
-   * If the OutstandingPacketWrapper with the largestAckedPacket packet number
-   * had already been acked or removed from the list of list of
-   * OutstandingPackets, either due to being marked lost or acked by an earlier
-   * AckEvent, then this information will be unavailable.
-   *
-   * Equivalent to getLargestAckedPacket() unless this is an implicit AckEvent
-   * (for which RttSamples are unavailable); this helper exists to make it
-   * easier to find this information.
-   */
-  [[nodiscard]] const AckPacket* FOLLY_NULLABLE
-  getRttSampleAckedPacket() const {
-    if (!rttSample) {
-      return nullptr;
-    }
-    return getLargestAckedPacket();
-  }
-
-  /**
    * Returns the AckPacket associated with the largestAckedPacket.
    *
    * The largestAckedPacket is included in the AckFrame received from sender.
@@ -180,10 +154,7 @@ struct AckEvent {
     OutstandingPacketMetadata outstandingPacketMetadata;
 
     struct StreamDetails {
-      uint64_t streamBytesAcked{0};
-      uint64_t streamBytesAckedByRetrans{0};
       folly::Optional<uint64_t> streamPacketIdx;
-      folly::Optional<uint64_t> maybeNewDeliveryOffset;
 
       // definition for DupAckedStreamIntervalSet
       // we expect this to be rare, any thus only allocate a single position
@@ -218,13 +189,8 @@ struct AckEvent {
        * an ACKed packet had already been marked as delivered.
        *
        * @param frame          The frame that is being processed.
-       * @param retransmission Whether this frame was being retransmitted in the
-       *                       packet being processed. If true, the frame was
-       *                       previously sent in some earlier packet.
        */
-      void recordFrameDelivered(
-          const WriteStreamFrame& frame,
-          const bool retransmission);
+      void recordFrameDelivered(const WriteStreamFrame& frame);
 
       /**
        * Record that a frame had already been marked as delivered.
@@ -243,21 +209,8 @@ struct AckEvent {
        *
        * @param frame          The frame that is being processed and that was
        *                       marked as delivered by some previous packet.
-       * @param retransmission Whether this frame was being retransmitted in the
-       *                       packet being processed. If true, the frame was
-       *                       previously sent in some earlier packet. This is
-       *                       generally expected to be true for the "already
-       *                       delivered" scenario; the exception would be
-       *                       packet reordering.
        */
-      void recordFrameAlreadyDelivered(
-          const WriteStreamFrame& frame,
-          const bool retransmission);
-
-      /**
-       * Record a delivery offset update (increase) for a stream ID.
-       */
-      void recordDeliveryOffsetUpdate(StreamId streamId, uint64_t newOffset);
+      void recordFrameAlreadyDelivered(const WriteStreamFrame& frame);
 
       [[nodiscard]] auto at(StreamId id) const {
         return MapType::at(id);
@@ -301,11 +254,10 @@ struct AckEvent {
       Builder&& setNonDsrPacketSequenceNumber(
           uint64_t nonDsrPacketSequenceNumberIn);
       Builder&& setOutstandingPacketMetadata(
-          OutstandingPacketMetadata&& outstandingPacketMetadataIn);
+          OutstandingPacketMetadata& outstandingPacketMetadataIn);
       Builder&& setDetailsPerStream(DetailsPerStream&& detailsPerStreamIn);
       Builder&& setLastAckedPacketInfo(
-          folly::Optional<OutstandingPacketWrapper::LastAckedPacketInfo>&&
-              lastAckedPacketInfoIn);
+          OutstandingPacketWrapper::LastAckedPacketInfo* lastAckedPacketInfoIn);
       Builder&& setAppLimited(bool appLimitedIn);
       Builder&& setReceiveDeltaTimeStamp(
           folly::Optional<std::chrono::microseconds>&&
@@ -316,10 +268,10 @@ struct AckEvent {
      private:
       folly::Optional<quic::PacketNum> packetNum;
       folly::Optional<uint64_t> nonDsrPacketSequenceNumber;
-      folly::Optional<OutstandingPacketMetadata> outstandingPacketMetadata;
+      OutstandingPacketMetadata* outstandingPacketMetadata{nullptr};
       folly::Optional<DetailsPerStream> detailsPerStream;
-      folly::Optional<OutstandingPacketWrapper::LastAckedPacketInfo>
-          lastAckedPacketInfo;
+      OutstandingPacketWrapper::LastAckedPacketInfo* lastAckedPacketInfo{
+          nullptr};
       folly::Optional<std::chrono::microseconds> receiveRelativeTimeStampUsec;
       bool isAppLimited{false};
     };
@@ -328,8 +280,8 @@ struct AckEvent {
     explicit AckPacket(
         quic::PacketNum packetNumIn,
         uint64_t nonDsrPacketSequenceNumberIn,
-        OutstandingPacketMetadata&& outstandingPacketMetadataIn,
-        DetailsPerStream&& detailsPerStreamIn,
+        const OutstandingPacketMetadata& outstandingPacketMetadataIn, // NOLINT
+        const DetailsPerStream& detailsPerStreamIn, // NOLINT
         folly::Optional<OutstandingPacketWrapper::LastAckedPacketInfo>
             lastAckedPacketInfoIn,
         bool isAppLimitedIn,

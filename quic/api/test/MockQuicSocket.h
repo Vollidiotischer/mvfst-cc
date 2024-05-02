@@ -51,6 +51,16 @@ class MockQuicSocket : public QuicSocket {
   MOCK_METHOD(const folly::SocketAddress&, getPeerAddress, (), (const));
   MOCK_METHOD(const folly::SocketAddress&, getOriginalPeerAddress, (), (const));
   MOCK_METHOD(const folly::SocketAddress&, getLocalAddress, (), (const));
+  MOCK_METHOD(
+      folly::Optional<std::vector<TransportParameter>>,
+      getPeerTransportParams,
+      (),
+      (const));
+  MOCK_METHOD(
+      (folly::Optional<std::vector<uint8_t>>),
+      getExportedKeyingMaterial,
+      (const std::string&, const folly::Optional<folly::ByteRange>&, uint16_t),
+      (const));
   MOCK_METHOD(std::shared_ptr<QuicEventBase>, getEventBase, (), (const));
   MOCK_METHOD(
       (folly::Expected<size_t, LocalErrorCode>),
@@ -384,5 +394,6 @@ class MockQuicSocket : public QuicSocket {
       getPeerCertificate,
       (),
       (const));
+  MOCK_METHOD((uint64_t), maxWritableOnConn, (), (const));
 };
 } // namespace quic

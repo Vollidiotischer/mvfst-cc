@@ -347,26 +347,61 @@ TEST_F(QuicFlowControlTest, MaybeWriteBlockedAfterAPIWrite) {
   maybeWriteBlockAfterAPIWrite(stream);
   EXPECT_TRUE(conn_.streamManager->hasBlocked());
 }
+TEST_F(QuicFlowControlTest, UpdateFlowControlClearsStreamBlockedFlag) {
+  StreamId id = 3;
+  QuicStreamState stream(id, conn_);
+  stream.conn.transportSettings.useNewStreamBlockedCondition = true;
+  stream.currentWriteOffset = 400;
+  stream.flowControlState.peerAdvertisedMaxOffset = 400;
+
+  // The flag is off initially.
+  EXPECT_FALSE(stream.flowControlState.pendingBlockedFrame);
+
+  // Stream blocked.
+  EXPECT_CALL(*quicStats_, onStreamFlowControlBlocked()).Times(1);
+  maybeWriteBlockAfterSocketWrite(stream);
+  EXPECT_TRUE(conn_.streamManager->hasBlocked());
+  EXPECT_TRUE(stream.flowControlState.pendingBlockedFrame);
+
+  // Stream still blocked, a peding blocked frame flag.
+  EXPECT_CALL(*quicStats_, onStreamFlowControlBlocked()).Times(0);
+  maybeWriteBlockAfterSocketWrite(stream);
+  EXPECT_TRUE(conn_.streamManager->hasBlocked());
+  EXPECT_TRUE(stream.flowControlState.pendingBlockedFrame);
+
+  // A flow control update resets the pendingBlockedFrame flag
+  uint64_t newMaximumData = 800;
+  handleStreamWindowUpdate(stream, newMaximumData, 123 /* PacketNum */);
+  EXPECT_FALSE(stream.flowControlState.pendingBlockedFrame);
+
+  // Stream blocked again.
+  stream.currentWriteOffset = 800;
+  EXPECT_CALL(*quicStats_, onStreamFlowControlBlocked()).Times(1);
+  maybeWriteBlockAfterSocketWrite(stream);
+  EXPECT_TRUE(conn_.streamManager->hasBlocked());
+  EXPECT_TRUE(stream.flowControlState.pendingBlockedFrame);
+}
 
 TEST_F(QuicFlowControlTest, MaybeWriteBlockedAfterSocketWrite) {
   StreamId id = 3;
   QuicStreamState stream(id, conn_);
+  stream.conn.transportSettings.useNewStreamBlockedCondition = true;
   stream.currentWriteOffset = 200;
   stream.flowControlState.peerAdvertisedMaxOffset = 400;
 
   maybeWriteBlockAfterSocketWrite(stream);
   EXPECT_FALSE(conn_.streamManager->hasBlocked());
 
-  // Don't add a blocked if there is nothing to write even the stream is
-  // flow control limited.
+  // Stream is preemtively blocked if we exhausted the flow control.
   stream.currentWriteOffset = 400;
-  maybeWriteBlockAfterSocketWrite(stream);
-  EXPECT_CALL(*quicStats_, onStreamFlowControlBlocked()).Times(0);
-  EXPECT_FALSE(conn_.streamManager->hasBlocked());
-
-  // Now write something
-  stream.writeBuffer.append(IOBuf::copyBuffer("1234"));
   EXPECT_CALL(*quicStats_, onStreamFlowControlBlocked()).Times(1);
+  maybeWriteBlockAfterSocketWrite(stream);
+  EXPECT_TRUE(conn_.streamManager->hasBlocked());
+
+  // Now write something - onStreamFlowControlBlocked() is not called because
+  // we've already issued a blocked stream frame.
+  stream.writeBuffer.append(IOBuf::copyBuffer("1234"));
+  EXPECT_CALL(*quicStats_, onStreamFlowControlBlocked()).Times(0);
   maybeWriteBlockAfterSocketWrite(stream);
   EXPECT_TRUE(conn_.streamManager->hasBlocked());
 
@@ -443,6 +478,46 @@ TEST_F(QuicFlowControlTest, SendingStreamWindowUpdate) {
   EXPECT_FALSE(conn_.streamManager->pendingWindowUpdate(stream.id));
   EXPECT_EQ(stream.flowControlState.advertisedMaxOffset, frameOffset);
   EXPECT_EQ(*stream.flowControlState.timeOfLastFlowControlUpdate, sendTime);
+}
+
+TEST_F(QuicFlowControlTest, TestStreamFlowControlAutotuneDisabled) {
+  StreamId id = 3;
+  QuicStreamState stream(id, conn_);
+  stream.conn.transportSettings.useNewStreamBlockedCondition = true;
+  stream.currentReadOffset = 300;
+  stream.flowControlState.windowSize = 500;
+  stream.flowControlState.advertisedMaxOffset = 400;
+  stream.flowControlState.timeOfLastFlowControlUpdate = Clock::now();
+  stream.conn.lossState.srtt = 10ms;
+
+  // The window size should not change.
+  handleStreamBlocked(stream);
+  auto frameOffset = generateMaxStreamDataFrame(stream).maximumData;
+  EXPECT_EQ(stream.flowControlState.windowSize, 500);
+  EXPECT_EQ(
+      frameOffset,
+      stream.currentReadOffset + stream.flowControlState.windowSize);
+}
+
+TEST_F(QuicFlowControlTest, TestStreamFlowControlAutotuneEnabled) {
+  StreamId id = 3;
+  QuicStreamState stream(id, conn_);
+  stream.conn.transportSettings.useNewStreamBlockedCondition = true;
+  stream.currentReadOffset = 300;
+  stream.flowControlState.windowSize = 500;
+  stream.flowControlState.advertisedMaxOffset = 400;
+  stream.flowControlState.timeOfLastFlowControlUpdate = Clock::now();
+  stream.conn.lossState.srtt = 10ms;
+
+  stream.conn.transportSettings.autotuneReceiveStreamFlowControl = true;
+
+  // The window size should double.
+  handleStreamBlocked(stream);
+  auto frameOffset = generateMaxStreamDataFrame(stream).maximumData;
+  EXPECT_EQ(stream.flowControlState.windowSize, 1000);
+  EXPECT_EQ(
+      frameOffset,
+      stream.currentReadOffset + stream.flowControlState.windowSize);
 }
 
 TEST_F(QuicFlowControlTest, LostConnectionWindowUpdate) {

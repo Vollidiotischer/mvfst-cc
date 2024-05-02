@@ -16,7 +16,7 @@
 namespace quic {
 
 struct CongestionControlConfig {
-  // Used by: BBR1
+  // Used by: BBR1, BBR2
   bool conservativeRecovery{false};
 
   // Used by: BBR1
@@ -37,9 +37,9 @@ struct CongestionControlConfig {
   // haven't reached the drain target.
   bool drainToTarget{false};
 
-  // Used by: Cubic
-  // If true, exiting hystart switches to additive increase rather than Cubic
-  // congestion avoidance, similar to Linux kernel behavior.
+  //  Used by: Cubic
+  //  If true, exiting hystart switches to additive increase rather than Cubic
+  //  congestion avoidance, similar to Linux kernel behavior.
   bool additiveIncreaseAfterHystart{false};
 
   // Used by: Cubic
@@ -89,6 +89,11 @@ struct CongestionControlConfig {
   // Use a different cwnd gain during ProbeBW Cruise and Refill.
   // If value < 0, use the default cwnd gain.
   float overrideCruiseCwndGain{-1.0};
+
+  // Used by: BBR2
+  // Use a different pacing gain during Startup.
+  // If value < 0, use the default pacing gain.
+  float overrideStartupPacingGain{-1.0};
 };
 
 struct DatagramConfig {
@@ -281,6 +286,11 @@ struct TransportSettings {
   // updates. If there has been less than 2SRTTs between flow control updates
   // this will double the target window.
   bool autotuneReceiveConnFlowControl{false};
+  // Stream level receive flow control window autotuning.
+  // The logic is simple - double the flow control window every time we receive
+  // a stream blocked from the sender and there has been less than 2SRTTs since
+  // last flow control update.
+  bool autotuneReceiveStreamFlowControl{false};
   // Enable a keepalive timer. This schedules a timer to send a PING ~15%
   // before an idle timeout. To work effectively this means the idle timer
   // has to be set to something >> the RTT of the connection.
@@ -355,6 +365,9 @@ struct TransportSettings {
   // TODO: Remove this. This is a temporary measure to gradually roll out key
   // update support.
   bool rejectIncomingKeyUpdates{false};
+  // Temporary flag to test new stream blocked condition.
+  bool useNewStreamBlockedCondition{false};
+  bool scheduleTimerForExcessWrites{false};
 };
 
 } // namespace quic

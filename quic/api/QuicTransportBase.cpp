@@ -55,6 +55,7 @@ QuicTransportBase::QuicTransportBase(
       keepaliveTimeout_(this),
       drainTimeout_(this),
       pingTimeout_(this),
+      excessWriteTimeout_(this),
       readLooper_(new FunctionLooper(
           evb_,
           [this]() { invokeReadDataAndCallbacks(); },
@@ -372,6 +373,7 @@ void QuicTransportBase::closeImpl(
   cancelTimeout(&idleTimeout_);
   cancelTimeout(&keepaliveTimeout_);
   cancelTimeout(&pingTimeout_);
+  cancelTimeout(&excessWriteTimeout_);
 
   VLOG(10) << "Stopping read looper due to immediate close " << *this;
   readLooper_->stop();
@@ -385,11 +387,6 @@ void QuicTransportBase::closeImpl(
 
   // Clear out all the streams, we don't need them any more. When the peer
   // receives the conn close they will implicitly reset all the streams.
-  QUIC_STATS_FOR_EACH(
-      conn_->streamManager->streams().cbegin(),
-      conn_->streamManager->streams().cend(),
-      conn_->statsCallback,
-      onQuicStreamClosed);
   conn_->streamManager->clearOpenStreams();
 
   // Clear out all the buffered datagrams
@@ -970,8 +967,8 @@ QuicTransportBase::setPeekCallbackInternal(
     peekCbIt = peekCallbacks_.emplace(id, PeekCallbackData(cb)).first;
   }
   if (!cb) {
-    VLOG(10) << "Resetting the peek callback to nullptr "
-             << "stream=" << id << " peekCb=" << peekCbIt->second.peekCb;
+    VLOG(10) << "Resetting the peek callback to nullptr " << "stream=" << id
+             << " peekCb=" << peekCbIt->second.peekCb;
   }
   peekCbIt->second.peekCb = cb;
   updatePeekLooper();
@@ -2624,8 +2621,7 @@ folly::Expected<folly::Unit, LocalErrorCode> QuicTransportBase::setPingCallback(
   if (closeState_ != CloseState::OPEN) {
     return folly::makeUnexpected(LocalErrorCode::CONNECTION_CLOSED);
   }
-  VLOG(4) << "Setting ping callback "
-          << " cb=" << cb << " " << *this;
+  VLOG(4) << "Setting ping callback " << " cb=" << cb << " " << *this;
 
   pingCallback_ = cb;
   return folly::unit;
@@ -2690,6 +2686,13 @@ void QuicTransportBase::pingTimeoutExpired() noexcept {
   // If timeout expired just call the  call back Provided
   if (pingCallback_ != nullptr) {
     pingCallback_->pingTimeout();
+  }
+}
+
+void QuicTransportBase::excessWriteTimeoutExpired() noexcept {
+  auto writeDataReason = shouldWriteData(*conn_);
+  if (writeDataReason != WriteDataReason::NO_WRITE) {
+    pacedWriteDataToSocket();
   }
 }
 
@@ -2763,8 +2766,8 @@ void QuicTransportBase::scheduleAckTimeout() {
           timeMin(conn_->ackStates.maxAckDelay, factoredRtt));
       auto timeoutMs = folly::chrono::ceil<std::chrono::milliseconds>(timeout);
       VLOG(10) << __func__ << " timeout=" << timeoutMs.count() << "ms"
-               << " factoredRtt=" << factoredRtt.count() << "us"
-               << " " << *this;
+               << " factoredRtt=" << factoredRtt.count() << "us" << " "
+               << *this;
       scheduleTimeout(&ackTimeout_, timeoutMs);
     }
   } else {
@@ -2993,8 +2996,7 @@ QuicTransportBase::setDatagramCallback(DatagramCallback* cb) {
   if (closeState_ != CloseState::OPEN) {
     return folly::makeUnexpected(LocalErrorCode::CONNECTION_CLOSED);
   }
-  VLOG(4) << "Setting datagram callback "
-          << " cb=" << cb << " " << *this;
+  VLOG(4) << "Setting datagram callback " << " cb=" << cb << " " << *this;
 
   datagramCallback_ = cb;
   updateReadLooper();
@@ -3222,10 +3224,12 @@ void QuicTransportBase::setTransportSettings(
     if (useSinglePacketInplaceBatchWriter(
             transportSettings.maxBatchSize, transportSettings.dataPathType)) {
       createBufAccessor(conn_->udpSendPacketLen);
-    } else {
-      // Reset client's batching mode only if SinglePacketInplaceBatchWriter
-      // is not in use.
-      conn_->transportSettings.dataPathType = DataPathType::ChainedMemory;
+    } else if (
+        transportSettings.dataPathType ==
+        quic::DataPathType::ContinuousMemory) {
+      // Create generic buf for in-place batch writer.
+      createBufAccessor(
+          conn_->udpSendPacketLen * transportSettings.maxBatchSize);
     }
   }
 
@@ -3545,6 +3549,16 @@ void QuicTransportBase::pacedWriteDataToSocket() {
     // timeout, we should do a normal write to flush out the residue from
     // pacing write.
     writeSocketDataAndCatch();
+
+    if (conn_->transportSettings.scheduleTimerForExcessWrites) {
+      // If we still have data to write, yield the event loop now but schedule a
+      // timeout to come around and write again as soon as possible.
+      auto writeDataReason = shouldWriteData(*conn_);
+      if (writeDataReason != WriteDataReason::NO_WRITE &&
+          !excessWriteTimeout_.isTimerCallbackScheduled()) {
+        scheduleTimeout(&excessWriteTimeout_, 0ms);
+      }
+    }
     return;
   }
 

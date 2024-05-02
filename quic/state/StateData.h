@@ -13,6 +13,7 @@
 #include <quic/codec/QuicWriteCodec.h>
 #include <quic/codec/Types.h>
 #include <quic/common/BufAccessor.h>
+#include <quic/common/CircularDeque.h>
 #include <quic/congestion_control/CongestionController.h>
 #include <quic/congestion_control/PacketProcessor.h>
 #include <quic/congestion_control/ThrottlingSignalProvider.h>
@@ -65,10 +66,15 @@ struct OutstandingsInfo {
   // declared lost, this counter will be decreased.
   uint64_t dsrCount{0};
 
+  // We just use this to get the correct number of outstanding packets. We
+  // subtract the number of packets declared lost and scheduled for destruction
+  // from the number of packets in the outstanding packets list.
+  uint64_t scheduledForDestructionCount{0};
+
   // Number of packets outstanding and not declared lost.
   uint64_t numOutstanding() {
-    CHECK_GE(packets.size(), declaredLostCount);
-    return packets.size() - declaredLostCount;
+    CHECK_GE(packets.size(), declaredLostCount + scheduledForDestructionCount);
+    return packets.size() - declaredLostCount - scheduledForDestructionCount;
   }
 
   // Total number of cloned packets.
@@ -653,9 +659,9 @@ struct QuicConnectionStateBase : public folly::DelayedDestruction {
     uint32_t maxReadBufferSize{kDefaultMaxDatagramsBuffered};
     uint32_t maxWriteBufferSize{kDefaultMaxDatagramsBuffered};
     // Buffers Incoming Datagrams
-    std::deque<ReadDatagram> readBuffer;
+    CircularDeque<ReadDatagram> readBuffer;
     // Buffers Outgoing Datagrams
-    std::deque<BufQueue> writeBuffer;
+    CircularDeque<BufQueue> writeBuffer;
   };
 
   DatagramState datagramState;

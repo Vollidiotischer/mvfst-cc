@@ -27,16 +27,9 @@ struct OutstandingPacketMetadata {
   // Total sent bytes on this connection including this packet itself when this
   // packet is sent.
   uint64_t totalBytesSent;
-  // Total sent body bytes on this connection including this packet itself when
-  // this packet is sent.
-  uint64_t totalBodyBytesSent;
   // Bytes in flight on this connection including this packet itself when this
   // packet is sent.
   uint64_t inflightBytes;
-  // Packets in flight on this connection including this packet itself.
-  uint64_t packetsInflight;
-  // Total number of packets sent on this connection.
-  uint32_t totalPacketsSent{0};
   // Total number of ack-eliciting packets sent on this connection.
   uint32_t totalAckElicitingPacketsSent{0};
   // Write Count is the value of the monotonically increasing counter which
@@ -54,13 +47,14 @@ struct OutstandingPacketMetadata {
   // due to reordering
   folly::Optional<uint32_t> lossReorderDistance;
 
+  bool scheduledForDestruction{false};
+
   struct StreamDetails {
     template <class T>
     using IntervalSetVec = SmallVec<T, 4 /* stack size */>;
     using StreamIntervals = IntervalSet<uint64_t, 1, IntervalSetVec>;
     StreamIntervals streamIntervals;
 
-    bool finObserved{false};
     uint64_t streamBytesSent{0};
     uint64_t newStreamBytesSent{0};
     folly::Optional<uint64_t> maybeFirstNewStreamByteOffset;
@@ -80,9 +74,6 @@ struct OutstandingPacketMetadata {
         streamDetails.streamIntervals.insert(
             StreamDetails::StreamIntervals::interval_type(
                 frame.offset, frame.offset + frame.len - 1));
-      }
-      if (frame.fin) {
-        streamDetails.finObserved = true;
       }
       streamDetails.streamBytesSent += frame.len;
       if (newData) {
@@ -125,9 +116,7 @@ struct OutstandingPacketMetadata {
       uint32_t encodedBodySizeIn,
       bool isHandshakeIn,
       uint64_t totalBytesSentIn,
-      uint64_t totalBodyBytesSentIn,
       uint64_t inflightBytesIn,
-      uint64_t packetsInflightIn,
       const LossState& lossStateIn,
       uint64_t writeCount,
       DetailsPerStream detailsPerStream,
@@ -137,10 +126,7 @@ struct OutstandingPacketMetadata {
         encodedBodySize(encodedBodySizeIn),
         isHandshake(isHandshakeIn),
         totalBytesSent(totalBytesSentIn),
-        totalBodyBytesSent(totalBodyBytesSentIn),
         inflightBytes(inflightBytesIn),
-        packetsInflight(packetsInflightIn),
-        totalPacketsSent(lossStateIn.totalPacketsSent),
         totalAckElicitingPacketsSent(lossStateIn.totalAckElicitingPacketsSent),
         writeCount(writeCount),
         detailsPerStream(std::move(detailsPerStream)),
@@ -214,9 +200,7 @@ struct OutstandingPacket {
       uint32_t encodedBodySizeIn,
       bool isHandshakeIn,
       uint64_t totalBytesSentIn,
-      uint64_t totalBodyBytesSentIn,
       uint64_t inflightBytesIn,
-      uint64_t packetsInflightIn,
       const LossState& lossStateIn,
       uint64_t writeCount,
       Metadata::DetailsPerStream detailsPerStream,
@@ -228,9 +212,7 @@ struct OutstandingPacket {
             encodedBodySizeIn,
             isHandshakeIn,
             totalBytesSentIn,
-            totalBodyBytesSentIn,
             inflightBytesIn,
-            packetsInflightIn,
             lossStateIn,
             writeCount,
             std::move(detailsPerStream),
@@ -252,9 +234,7 @@ struct OutstandingPacketWrapper : OutstandingPacket {
       uint32_t encodedBodySizeIn,
       bool isHandshakeIn,
       uint64_t totalBytesSentIn,
-      uint64_t totalBodyBytesSentIn,
       uint64_t inflightBytesIn,
-      uint64_t packetsInflightIn,
       const LossState& lossStateIn,
       uint64_t writeCount,
       Metadata::DetailsPerStream detailsPerStream,
@@ -268,9 +248,7 @@ struct OutstandingPacketWrapper : OutstandingPacket {
             encodedBodySizeIn,
             isHandshakeIn,
             totalBytesSentIn,
-            totalBodyBytesSentIn,
             inflightBytesIn,
-            packetsInflightIn,
             lossStateIn,
             writeCount,
             std::move(detailsPerStream),

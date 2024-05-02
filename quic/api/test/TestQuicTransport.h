@@ -50,6 +50,11 @@ class TestQuicTransport
     closeUdpSocket();
   }
 
+  folly::Optional<std::vector<TransportParameter>> getPeerTransportParams()
+      const override {
+    return folly::none;
+  }
+
   QuicVersion getVersion() {
     auto& conn = getConnectionState();
     return conn.version.value_or(*conn.originalVersion);
@@ -172,6 +177,13 @@ class TestQuicTransport
 
   SocketObserverContainer* getSocketObserverContainer() const override {
     return observerContainer_.get();
+  }
+
+  folly::Optional<std::vector<uint8_t>> getExportedKeyingMaterial(
+      const std::string&,
+      const folly::Optional<folly::ByteRange>&,
+      uint16_t) const override {
+    return folly::none;
   }
 
   std::unique_ptr<Aead> aead;

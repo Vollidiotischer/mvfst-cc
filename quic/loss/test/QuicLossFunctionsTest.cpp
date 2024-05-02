@@ -265,8 +265,6 @@ PacketNum QuicLossFunctionsTest::sendPacket(
       encodedBodySize,
       isHandshake,
       encodedSize,
-      encodedBodySize,
-      0,
       0,
       LossState(),
       0,
@@ -367,12 +365,12 @@ TEST_F(QuicLossFunctionsTest, ClearEarlyRetranTimer) {
   ASSERT_EQ(2, conn->outstandings.packets.size());
   // detectLossPackets will set lossTime on Initial space.
   auto lossVisitor = [](auto&, auto&, bool) { ASSERT_FALSE(true); };
+
+  auto& ackState = getAckState(*conn, PacketNumberSpace::Initial);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = secondPacketNum;
   detectLossPackets(
-      *conn,
-      secondPacketNum,
-      lossVisitor,
-      Clock::now(),
-      PacketNumberSpace::Initial);
+      *conn, ackState, lossVisitor, Clock::now(), PacketNumberSpace::Initial);
   ASSERT_TRUE(earliestLossTimer(*conn).first.has_value());
   ASSERT_EQ(PacketNumberSpace::Initial, earliestLossTimer(*conn).second);
   conn->pendingEvents.setLossDetectionAlarm = true;
@@ -396,7 +394,8 @@ TEST_F(QuicLossFunctionsTest, ClearEarlyRetranTimer) {
       *conn,
       PacketNumberSpace::Initial,
       ackFrame,
-      [&](auto&, auto&, auto&) {},
+      [](auto&) {},
+      [&](auto&, auto&) {},
       lossVisitor,
       Clock::now());
 
@@ -745,9 +744,12 @@ TEST_F(QuicLossFunctionsTest, TestReorderingThreshold) {
   conn->outstandings.packets.erase(
       firstHandshakeOpIter + 2, firstHandshakeOpIter + 5);
   // Ack for packet 9 arrives
+  auto& ackState = getAckState(*conn, PacketNumberSpace::Handshake);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = 9;
   auto lossEvent = detectLossPackets(
       *conn,
-      9,
+      ackState,
       testingLossMarkFunc,
       TimePoint(90ms),
       PacketNumberSpace::Handshake);
@@ -793,8 +795,6 @@ TEST_F(QuicLossFunctionsTest, TestHandleAckForLoss) {
       0,
       0,
       false,
-      0,
-      0,
       0,
       0,
       LossState(),
@@ -851,14 +851,16 @@ TEST_F(QuicLossFunctionsTest, TestHandleAckedPacket) {
     testLossMarkFuncCalled = true;
   };
 
-  auto ackVisitor = [&](auto&, auto&, auto&) {};
+  auto ackPacketVisitor = [](auto&) {};
+  auto ackFrameVisitor = [&](auto&, auto&) {};
 
   // process and remove the acked packet.
   processAckFrame(
       *conn,
       PacketNumberSpace::AppData,
       ackFrame,
-      ackVisitor,
+      ackPacketVisitor,
+      ackFrameVisitor,
       testLossMarkFunc,
       Clock::now());
 
@@ -948,9 +950,13 @@ TEST_F(QuicLossFunctionsTest, ReorderingThresholdChecksSamePacketNumberSpace) {
         sendPacket(*conn, Clock::now(), folly::none, PacketType::Handshake);
   }
 
+  auto& ackState = getAckState(*conn, PacketNumberSpace::AppData);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = latestSent + 1;
+
   detectLossPackets(
       *conn,
-      latestSent + 1,
+      ackState,
       countingLossVisitor,
       Clock::now(),
       PacketNumberSpace::AppData);
@@ -958,7 +964,7 @@ TEST_F(QuicLossFunctionsTest, ReorderingThresholdChecksSamePacketNumberSpace) {
 
   detectLossPackets(
       *conn,
-      latestSent + 1,
+      ackState,
       countingLossVisitor,
       Clock::now(),
       PacketNumberSpace::Handshake);
@@ -1012,9 +1018,13 @@ TEST_F(QuicLossFunctionsTest, TestTimeReordering) {
   conn->outstandings.packets.erase(
       getFirstOutstandingPacket(*conn, PacketNumberSpace::AppData) + 2,
       getFirstOutstandingPacket(*conn, PacketNumberSpace::AppData) + 5);
+
+  auto& ackState = getAckState(*conn, PacketNumberSpace::AppData);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = largestSent;
   auto lossEvent = detectLossPackets(
       *conn,
-      largestSent,
+      ackState,
       testingLossMarkFunc(lostPacket),
       TimePoint(900ms),
       PacketNumberSpace::AppData);
@@ -1051,9 +1061,13 @@ TEST_F(QuicLossFunctionsTest, LossTimePreemptsCryptoTimer) {
   PacketNum second =
       sendPacket(*conn, sendTime + 1ms, folly::none, PacketType::Handshake);
   auto lossTime = sendTime + 50ms;
+
+  auto& ackState = getAckState(*conn, PacketNumberSpace::Handshake);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = second;
   detectLossPackets(
       *conn,
-      second,
+      ackState,
       testingLossMarkFunc(lostPackets),
       lossTime,
       PacketNumberSpace::Handshake);
@@ -1350,9 +1364,13 @@ TEST_F(QuicLossFunctionsTest, NoSkipLossVisitor) {
   for (size_t i = 0; i < 5; i++) {
     lastSent = sendPacket(*conn, Clock::now(), folly::none, PacketType::OneRtt);
   }
+
+  auto& ackState = getAckState(*conn, PacketNumberSpace::AppData);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = lastSent;
   detectLossPackets(
       *conn,
-      lastSent,
+      ackState,
       countingLossVisitor,
       TimePoint(100ms),
       PacketNumberSpace::AppData);
@@ -1378,9 +1396,13 @@ TEST_F(QuicLossFunctionsTest, SkipLossVisitor) {
     PacketEvent packetEvent(PacketNumberSpace::AppData, lastSent);
     sendPacket(*conn, Clock::now(), packetEvent, PacketType::OneRtt);
   }
+
+  auto& ackState = getAckState(*conn, PacketNumberSpace::AppData);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = lastSent;
   detectLossPackets(
       *conn,
-      lastSent,
+      ackState,
       countingLossVisitor,
       TimePoint(100ms),
       PacketNumberSpace::AppData);
@@ -1416,9 +1438,12 @@ TEST_F(QuicLossFunctionsTest, NoDoubleProcess) {
 
   // Ack the last sent packet. Despite three losses, lossVisitor only visit one
   // packet
+  auto& ackState = getAckState(*conn, PacketNumberSpace::AppData);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = lastSent;
   detectLossPackets(
       *conn,
-      lastSent,
+      ackState,
       countingLossVisitor,
       TimePoint(100ms),
       PacketNumberSpace::AppData);
@@ -1443,9 +1468,13 @@ TEST_F(QuicLossFunctionsTest, DetectPacketLossClonedPacketsCounter) {
   auto ackedPacket =
       sendPacket(*conn, Clock::now(), folly::none, PacketType::OneRtt);
   auto noopLossMarker = [](auto&, auto&, bool) {};
+
+  auto& ackState = getAckState(*conn, PacketNumberSpace::AppData);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = ackedPacket;
   detectLossPackets(
       *conn,
-      ackedPacket,
+      ackState,
       noopLossMarker,
       Clock::now(),
       PacketNumberSpace::AppData);
@@ -1556,9 +1585,13 @@ TEST_F(QuicLossFunctionsTest, TotalLossCount) {
       };
 
   conn->lossState.rtxCount = 135;
+
+  auto& ackState = getAckState(*conn, PacketNumberSpace::AppData);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = largestSent;
   detectLossPackets(
       *conn,
-      largestSent,
+      ackState,
       countingLossVisitor,
       TimePoint(100ms),
       PacketNumberSpace::AppData);
@@ -1680,9 +1713,13 @@ TEST_F(QuicLossFunctionsTest, TimeThreshold) {
   auto lossVisitor = [&](const auto& /*conn*/, const auto& packet, bool) {
     EXPECT_EQ(packet1, packet.header.getPacketSequenceNum());
   };
+
+  auto& ackState = getAckState(*conn, PacketNumberSpace::AppData);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = packet2;
   detectLossPackets(
       *conn,
-      packet2,
+      ackState,
       lossVisitor,
       referenceTime + conn->lossState.srtt * 9 / 8 + 5ms,
       PacketNumberSpace::AppData);
@@ -1701,9 +1738,13 @@ TEST_F(QuicLossFunctionsTest, OutstandingInitialCounting) {
   auto noopLossVisitor =
       [&](auto& /* conn */, auto& /* packet */, bool /* processed */
       ) {};
+
+  auto& ackState = getAckState(*conn, PacketNumberSpace::Initial);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = largestSent;
   detectLossPackets(
       *conn,
-      largestSent,
+      ackState,
       noopLossVisitor,
       TimePoint(100ms),
       PacketNumberSpace::Initial);
@@ -1724,9 +1765,12 @@ TEST_F(QuicLossFunctionsTest, OutstandingHandshakeCounting) {
   auto noopLossVisitor =
       [&](auto& /* conn */, auto& /* packet */, bool /* processed */
       ) {};
+  auto& ackState = getAckState(*conn, PacketNumberSpace::Handshake);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = largestSent;
   detectLossPackets(
       *conn,
-      largestSent,
+      ackState,
       noopLossVisitor,
       TimePoint(100ms),
       PacketNumberSpace::Handshake);
@@ -1802,22 +1846,21 @@ TEST_F(QuicLossFunctionsTest, PersistentCongestionAckOutsideWindow) {
                  .setPacketNumberSpace(PacketNumberSpace::AppData)
                  .setLargestAckedPacket(1)
                  .build();
+  OutstandingPacketMetadata opm(
+      currentTime + 12s /* sentTime */,
+      0 /* encodedSize */,
+      0 /* encodedBodySize */,
+      false /* isHandshake */,
+      0 /* totalBytesSent */,
+      0 /* inflightBytes */,
+      LossState() /* lossState */,
+      0 /* writeCount */,
+      OutstandingPacketMetadata::DetailsPerStream());
   ack.ackedPackets.push_back(
       CongestionController::AckEvent::AckPacket::Builder()
           .setPacketNum(1)
           .setNonDsrPacketSequenceNumber(1)
-          .setOutstandingPacketMetadata(OutstandingPacketMetadata(
-              currentTime + 12s /* sentTime */,
-              0 /* encodedSize */,
-              0 /* encodedBodySize */,
-              false /* isHandshake */,
-              0 /* totalBytesSent */,
-              0 /* totalBodyBytesSent */,
-              0 /* inflightBytes */,
-              0 /* numOutstanding */,
-              LossState() /* lossState */,
-              0 /* writeCount */,
-              OutstandingPacketMetadata::DetailsPerStream()))
+          .setOutstandingPacketMetadata(opm)
           .setDetailsPerStream(AckEvent::AckPacket::DetailsPerStream())
           .build());
 
@@ -1838,22 +1881,21 @@ TEST_F(QuicLossFunctionsTest, PersistentCongestionAckInsideWindow) {
                  .setPacketNumberSpace(PacketNumberSpace::AppData)
                  .setLargestAckedPacket(1)
                  .build();
+  OutstandingPacketMetadata opm(
+      currentTime + 4s /* sentTime */,
+      0 /* encodedSize */,
+      0 /* encodedBodySize */,
+      false /* isHandshake */,
+      0 /* totalBytesSent */,
+      0 /* inflightBytes */,
+      LossState() /* lossState */,
+      0 /* writeCount */,
+      OutstandingPacketMetadata::DetailsPerStream());
   ack.ackedPackets.push_back(
       CongestionController::AckEvent::AckPacket::Builder()
           .setPacketNum(1)
           .setNonDsrPacketSequenceNumber(1)
-          .setOutstandingPacketMetadata(OutstandingPacketMetadata(
-              currentTime + 4s /* sentTime */,
-              0 /* encodedSize */,
-              0 /* encodedBodySize */,
-              false /* isHandshake */,
-              0 /* totalBytesSent */,
-              0 /* totalBodyBytesSent */,
-              0 /* inflightBytes */,
-              0 /* numOutstanding */,
-              LossState() /* lossState */,
-              0 /* writeCount */,
-              OutstandingPacketMetadata::DetailsPerStream()))
+          .setOutstandingPacketMetadata(opm)
           .setDetailsPerStream(AckEvent::AckPacket::DetailsPerStream())
           .build());
 
@@ -1873,22 +1915,21 @@ TEST_F(QuicLossFunctionsTest, PersistentCongestionNoPTO) {
                  .setPacketNumberSpace(PacketNumberSpace::AppData)
                  .setLargestAckedPacket(1)
                  .build();
+  OutstandingPacketMetadata opm(
+      currentTime + 12s /* sentTime */,
+      0 /* encodedSize */,
+      0 /* encodedBodySize */,
+      false /* isHandshake */,
+      0 /* totalBytesSent */,
+      0 /* inflightBytes */,
+      LossState() /* lossState */,
+      0 /* writeCount */,
+      OutstandingPacketMetadata::DetailsPerStream());
   ack.ackedPackets.push_back(
       CongestionController::AckEvent::AckPacket::Builder()
           .setPacketNum(1)
           .setNonDsrPacketSequenceNumber(1)
-          .setOutstandingPacketMetadata(OutstandingPacketMetadata(
-              currentTime + 12s /* sentTime */,
-              0 /* encodedSize */,
-              0 /* encodedBodySize */,
-              false /* isHandshake */,
-              0 /* totalBytesSent */,
-              0 /* totalBodyBytesSent */,
-              0 /* inflightBytes */,
-              0 /* numOutstanding */,
-              LossState() /* lossState */,
-              0 /* writeCount */,
-              OutstandingPacketMetadata::DetailsPerStream()))
+          .setOutstandingPacketMetadata(opm)
           .setDetailsPerStream(AckEvent::AckPacket::DetailsPerStream())
           .build());
 
@@ -1947,9 +1988,13 @@ TEST_F(QuicLossFunctionsTest, ObserverLossEventReorder) {
                       true /* lossByReorder */,
                       false /* lossByTimeout */)))))
       .Times(1);
+
+  auto& ackState = getAckState(*conn, PacketNumberSpace::AppData);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = largestSent + 1;
   detectLossPackets(
       *conn,
-      largestSent + 1,
+      ackState,
       [](auto&, auto&, bool) {},
       checkTime,
       PacketNumberSpace::AppData);
@@ -2038,9 +2083,12 @@ TEST_F(QuicLossFunctionsTest, ObserverLossEventTimeout) {
                       false /* lossByReorder */,
                       true /* lossByTimeout */)))))
       .Times(1);
+  auto& ackState = getAckState(*conn, PacketNumberSpace::AppData);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = largestSent + 1;
   detectLossPackets(
       *conn,
-      largestSent + 1,
+      ackState,
       [](auto&, auto&, bool) {},
       checkTime,
       PacketNumberSpace::AppData);
@@ -2137,9 +2185,12 @@ TEST_F(QuicLossFunctionsTest, ObserverLossEventTimeoutAndReorder) {
                       false /* lossByReorder */,
                       true /* lossByTimeout */)))))
       .Times(1);
+  auto& ackState = getAckState(*conn, PacketNumberSpace::AppData);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = largestSent + 1;
   detectLossPackets(
       *conn,
-      largestSent + 1,
+      ackState,
       [](auto&, auto&, bool) {},
       checkTime,
       PacketNumberSpace::AppData);
@@ -2192,12 +2243,11 @@ TEST_F(QuicLossFunctionsTest, TotalPacketsMarkedLostByReordering) {
   conn->transportSettings.timeReorderingThreshDivisor = 1.0;
   TimePoint checkTime = TimePoint(200ms);
 
+  auto& ackState = getAckState(*conn, PacketNumberSpace::AppData);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = largestSent + 1;
   detectLossPackets(
-      *conn,
-      largestSent + 1,
-      noopLossVisitor,
-      checkTime,
-      PacketNumberSpace::AppData);
+      *conn, ackState, noopLossVisitor, checkTime, PacketNumberSpace::AppData);
 
   // Sent 7 packets, out of 0, 1, 2, 3, 4, 5, 6 -- we deleted (acked) 2,3,4
   // 0, 1, and 5 should be marked lost due to reordering, none due to timeout
@@ -2228,12 +2278,11 @@ TEST_F(QuicLossFunctionsTest, TotalPacketsMarkedLostByTimeout) {
   conn->transportSettings.timeReorderingThreshDivisor = 1.0;
   TimePoint checkTime = TimePoint(500ms);
 
+  auto& ackState = getAckState(*conn, PacketNumberSpace::AppData);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = largestSent + 1;
   detectLossPackets(
-      *conn,
-      largestSent + 1,
-      noopLossVisitor,
-      checkTime,
-      PacketNumberSpace::AppData);
+      *conn, ackState, noopLossVisitor, checkTime, PacketNumberSpace::AppData);
 
   // All 7 packets should be marked as lost by PTO
   EXPECT_EQ(7, conn->lossState.totalPacketsMarkedLost);
@@ -2267,12 +2316,11 @@ TEST_F(QuicLossFunctionsTest, TotalPacketsMarkedLostByTimeoutPartial) {
   conn->transportSettings.timeReorderingThreshDivisor = 1.0;
   TimePoint checkTime = TimePoint(500ms);
 
+  auto& ackState = getAckState(*conn, PacketNumberSpace::AppData);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = largestSent + 1;
   detectLossPackets(
-      *conn,
-      largestSent + 1,
-      noopLossVisitor,
-      checkTime,
-      PacketNumberSpace::AppData);
+      *conn, ackState, noopLossVisitor, checkTime, PacketNumberSpace::AppData);
 
   // Sent 7 packets, out of 0, 1, 2, 3, 4, 5, 6 -- we deleted (acked) 2,3,4
   // 0, 1, 5, and 6 should be marked lost due to timeout, none due to reordering
@@ -2308,12 +2356,11 @@ TEST_F(QuicLossFunctionsTest, TotalPacketsMarkedLostByTimeoutAndReordering) {
   conn->transportSettings.timeReorderingThreshDivisor = 1.0;
   TimePoint checkTime = TimePoint(500ms);
 
+  auto& ackState = getAckState(*conn, PacketNumberSpace::AppData);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = largestSent + 1;
   detectLossPackets(
-      *conn,
-      largestSent + 1,
-      noopLossVisitor,
-      checkTime,
-      PacketNumberSpace::AppData);
+      *conn, ackState, noopLossVisitor, checkTime, PacketNumberSpace::AppData);
 
   // Sent 7 packets, out of 0, 1, 2, 3, 4, 5, 6 -- we deleted (acked) 2,3,4
   // 0, 1, and 5 should be marked lost due to reordering AND timeout
@@ -2534,20 +2581,22 @@ TEST_F(QuicLossFunctionsTest, TestReorderingThresholdDSRNormal) {
                  .build();
   AckEvent::AckPacket::DetailsPerStream detailsPerStream;
   detailsPerStream.recordFrameDelivered(
-      WriteStreamFrame{0, 10, 100, false, true, folly::none, 9}, false);
+      WriteStreamFrame{0, 10, 100, false, true, folly::none, 9});
   ack.ackedPackets.emplace_back(
       CongestionController::AckEvent::AckPacket::Builder()
           .setPacketNum(9)
           .setNonDsrPacketSequenceNumber(0)
           .setDetailsPerStream(std::move(detailsPerStream))
-          .setOutstandingPacketMetadata(std::move(
+          .setOutstandingPacketMetadata(
               getFirstOutstandingPacket(*conn, PacketNumberSpace::AppData)
-                  ->metadata))
+                  ->metadata)
           .build());
-
+  auto& ackState = getAckState(*conn, PacketNumberSpace::AppData);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = 9;
   auto lossEvent = detectLossPackets(
       *conn,
-      9,
+      ackState,
       testingLossMarkFunc,
       TimePoint(90ms),
       PacketNumberSpace::AppData,
@@ -2625,20 +2674,23 @@ TEST_F(QuicLossFunctionsTest, TestReorderingThresholdDSRNormalOverflow) {
                  .build();
   AckEvent::AckPacket::DetailsPerStream detailsPerStream;
   detailsPerStream.recordFrameDelivered(
-      WriteStreamFrame{0, 10, 100, false, true}, false);
+      WriteStreamFrame{0, 10, 100, false, true});
   ack.ackedPackets.emplace_back(
       CongestionController::AckEvent::AckPacket::Builder()
           .setPacketNum(0)
           .setNonDsrPacketSequenceNumber(0)
           .setDetailsPerStream(std::move(detailsPerStream))
-          .setOutstandingPacketMetadata(std::move(
+          .setOutstandingPacketMetadata(
               getFirstOutstandingPacket(*conn, PacketNumberSpace::AppData)
-                  ->metadata))
+                  ->metadata)
           .build());
 
+  auto& ackState = getAckState(*conn, PacketNumberSpace::AppData);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = 9;
   auto lossEvent = detectLossPackets(
       *conn,
-      9,
+      ackState,
       testingLossMarkFunc,
       TimePoint(90ms),
       PacketNumberSpace::AppData,
@@ -2714,29 +2766,31 @@ TEST_F(QuicLossFunctionsTest, TestReorderingThresholdDSRIgnoreReorder) {
   AckEvent::AckPacket::DetailsPerStream detailsPerStream;
   // Ack a different stream.
   detailsPerStream.recordFrameDelivered(
-      WriteStreamFrame{4, 10, 100, false, true}, false);
+      WriteStreamFrame{4, 10, 100, false, true});
   ack.ackedPackets.emplace_back(
       CongestionController::AckEvent::AckPacket::Builder()
           .setPacketNum(20)
           .setNonDsrPacketSequenceNumber(0)
           .setDetailsPerStream(std::move(detailsPerStream))
-          .setOutstandingPacketMetadata(std::move(
+          .setOutstandingPacketMetadata(
               getFirstOutstandingPacket(*conn, PacketNumberSpace::AppData)
-                  ->metadata))
+                  ->metadata)
           .build());
   ack.ackedPackets.emplace_back(
       CongestionController::AckEvent::AckPacket::Builder()
           .setPacketNum(19)
           .setNonDsrPacketSequenceNumber(19 - 6)
           .setDetailsPerStream(AckEvent::AckPacket::DetailsPerStream())
-          .setOutstandingPacketMetadata(std::move(
+          .setOutstandingPacketMetadata(
               getFirstOutstandingPacket(*conn, PacketNumberSpace::AppData)
-                  ->metadata))
+                  ->metadata)
           .build());
-
+  auto& ackState = getAckState(*conn, PacketNumberSpace::AppData);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = 20;
   auto lossEvent = detectLossPackets(
       *conn,
-      20,
+      ackState,
       testingLossMarkFunc,
       TimePoint(90ms),
       PacketNumberSpace::AppData,
@@ -2794,20 +2848,23 @@ TEST_F(QuicLossFunctionsTest, TestReorderingThresholdNonDSRIgnoreReorder) {
   AckEvent::AckPacket::DetailsPerStream detailsPerStream;
   // Ack a different stream.
   detailsPerStream.recordFrameDelivered(
-      WriteStreamFrame{4, 10, 100, false, true}, false);
+      WriteStreamFrame{4, 10, 100, false, true});
   ack.ackedPackets.emplace_back(
       CongestionController::AckEvent::AckPacket::Builder()
           .setPacketNum(9)
           .setNonDsrPacketSequenceNumber(9)
           .setDetailsPerStream(std::move(detailsPerStream))
-          .setOutstandingPacketMetadata(std::move(
+          .setOutstandingPacketMetadata(
               getFirstOutstandingPacket(*conn, PacketNumberSpace::AppData)
-                  ->metadata))
+                  ->metadata)
           .build());
 
+  auto& ackState = getAckState(*conn, PacketNumberSpace::AppData);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = 9;
   auto lossEvent = detectLossPackets(
       *conn,
-      9,
+      ackState,
       testingLossMarkFunc,
       TimePoint(90ms),
       PacketNumberSpace::AppData,
@@ -2866,29 +2923,32 @@ TEST_F(
                  .build();
   AckEvent::AckPacket::DetailsPerStream detailsPerStream;
   detailsPerStream.recordFrameDelivered(
-      WriteStreamFrame{4, 10, 100, false, true}, false);
+      WriteStreamFrame{4, 10, 100, false, true});
   ack.ackedPackets.emplace_back(
       CongestionController::AckEvent::AckPacket::Builder()
           .setPacketNum(9)
           .setNonDsrPacketSequenceNumber(9)
           .setDetailsPerStream(std::move(detailsPerStream))
-          .setOutstandingPacketMetadata(std::move(
+          .setOutstandingPacketMetadata(
               getFirstOutstandingPacket(*conn, PacketNumberSpace::AppData)
-                  ->metadata))
+                  ->metadata)
           .build());
   ack.ackedPackets.emplace_back(
       CongestionController::AckEvent::AckPacket::Builder()
           .setPacketNum(0)
           .setNonDsrPacketSequenceNumber(0)
-          .setOutstandingPacketMetadata(std::move(
+          .setOutstandingPacketMetadata(
               getFirstOutstandingPacket(*conn, PacketNumberSpace::AppData)
-                  ->metadata))
+                  ->metadata)
           .setDetailsPerStream(AckEvent::AckPacket::DetailsPerStream())
           .build());
 
+  auto& ackState = getAckState(*conn, PacketNumberSpace::AppData);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = 9;
   auto lossEvent = detectLossPackets(
       *conn,
-      9,
+      ackState,
       testingLossMarkFunc,
       TimePoint(90ms),
       PacketNumberSpace::AppData,
@@ -2948,13 +3008,13 @@ TEST_F(QuicLossFunctionsTest, TestReorderingThresholdDSRIgnoreReorderBurst) {
         op.packet.header.getPacketSequenceNum()};
     AckEvent::AckPacket::DetailsPerStream detailsPerStream;
     if (op.packet.header.getPacketSequenceNum() != 4) {
-      detailsPerStream.recordFrameDelivered(f, false);
+      detailsPerStream.recordFrameDelivered(f);
       ack.ackedPackets.emplace_back(
           CongestionController::AckEvent::AckPacket::Builder()
               .setPacketNum(op.packet.header.getPacketSequenceNum())
               .setNonDsrPacketSequenceNumber(0)
               .setDetailsPerStream(std::move(detailsPerStream))
-              .setOutstandingPacketMetadata(std::move(op.metadata))
+              .setOutstandingPacketMetadata(op.metadata)
               .build());
     }
     op.packet.frames.emplace_back(f);
@@ -2977,7 +3037,7 @@ TEST_F(QuicLossFunctionsTest, TestReorderingThresholdDSRIgnoreReorderBurst) {
             .setNonDsrPacketSequenceNumber(
                 op.nonDsrPacketSequenceNumber.value())
             .setDetailsPerStream({})
-            .setOutstandingPacketMetadata(std::move(op.metadata))
+            .setOutstandingPacketMetadata(op.metadata)
             .build());
   }
   // Add one more DSR packet from the same stream, ACKed
@@ -2986,7 +3046,7 @@ TEST_F(QuicLossFunctionsTest, TestReorderingThresholdDSRIgnoreReorderBurst) {
   auto& op = *getLastOutstandingPacket(*conn, PacketNumberSpace::AppData);
   WriteStreamFrame f{0, 10, 100, false, true, folly::none, 5};
   AckEvent::AckPacket::DetailsPerStream detailsPerStream;
-  detailsPerStream.recordFrameDelivered(f, false);
+  detailsPerStream.recordFrameDelivered(f);
   op.packet.frames.emplace_back(f);
   op.isDSRPacket = true;
   conn->outstandings.dsrCount++;
@@ -2995,7 +3055,7 @@ TEST_F(QuicLossFunctionsTest, TestReorderingThresholdDSRIgnoreReorderBurst) {
           .setPacketNum(op.packet.header.getPacketSequenceNum())
           .setNonDsrPacketSequenceNumber(0)
           .setDetailsPerStream(std::move(detailsPerStream))
-          .setOutstandingPacketMetadata(std::move(op.metadata))
+          .setOutstandingPacketMetadata(op.metadata)
           .build());
 
   ASSERT_EQ(9, conn->outstandings.packetCount[PacketNumberSpace::AppData]);
@@ -3009,9 +3069,12 @@ TEST_F(QuicLossFunctionsTest, TestReorderingThresholdDSRIgnoreReorderBurst) {
       itr++;
     }
   }
+  auto& ackState = getAckState(*conn, PacketNumberSpace::AppData);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = 10;
   auto lossEvent = detectLossPackets(
       *conn,
-      10,
+      ackState,
       testingLossMarkFunc,
       TimePoint(90ms),
       PacketNumberSpace::AppData,
@@ -3062,14 +3125,14 @@ TEST_F(QuicLossFunctionsTest, TestReorderingThresholdNonDSRIgnoreReorderBurst) {
     WriteStreamFrame f{0, 10, 100, false, false, folly::none, 0};
     AckEvent::AckPacket::DetailsPerStream detailsPerStream;
     if (op.packet.header.getPacketSequenceNum() != 4) {
-      detailsPerStream.recordFrameDelivered(f, false);
+      detailsPerStream.recordFrameDelivered(f);
       ack.ackedPackets.emplace_back(
           CongestionController::AckEvent::AckPacket::Builder()
               .setPacketNum(op.packet.header.getPacketSequenceNum())
               .setNonDsrPacketSequenceNumber(
                   op.nonDsrPacketSequenceNumber.value())
               .setDetailsPerStream(std::move(detailsPerStream))
-              .setOutstandingPacketMetadata(std::move(op.metadata))
+              .setOutstandingPacketMetadata(op.metadata)
               .build());
     }
     op.packet.frames.emplace_back(f);
@@ -3087,13 +3150,13 @@ TEST_F(QuicLossFunctionsTest, TestReorderingThresholdNonDSRIgnoreReorderBurst) {
     WriteStreamFrame f{
         4, 10, 100, false, true, folly::none, conn->outstandings.dsrCount++};
     AckEvent::AckPacket::DetailsPerStream detailsPerStream;
-    detailsPerStream.recordFrameDelivered(f, false);
+    detailsPerStream.recordFrameDelivered(f);
     ack.ackedPackets.emplace_back(
         CongestionController::AckEvent::AckPacket::Builder()
             .setPacketNum(op.packet.header.getPacketSequenceNum())
             .setNonDsrPacketSequenceNumber(0)
             .setDetailsPerStream(std::move(detailsPerStream))
-            .setOutstandingPacketMetadata(std::move(op.metadata))
+            .setOutstandingPacketMetadata(op.metadata)
             .build());
     op.packet.frames.emplace_back(f);
     op.isDSRPacket = true;
@@ -3103,14 +3166,14 @@ TEST_F(QuicLossFunctionsTest, TestReorderingThresholdNonDSRIgnoreReorderBurst) {
   auto& op = *getLastOutstandingPacket(*conn, PacketNumberSpace::AppData);
   WriteStreamFrame f{0, 10, 100, false, false, folly::none, 0};
   AckEvent::AckPacket::DetailsPerStream detailsPerStream;
-  detailsPerStream.recordFrameDelivered(f, false);
+  detailsPerStream.recordFrameDelivered(f);
   op.packet.frames.emplace_back(f);
   ack.ackedPackets.emplace_back(
       CongestionController::AckEvent::AckPacket::Builder()
           .setPacketNum(op.packet.header.getPacketSequenceNum())
           .setNonDsrPacketSequenceNumber(op.nonDsrPacketSequenceNumber.value())
           .setDetailsPerStream(std::move(detailsPerStream))
-          .setOutstandingPacketMetadata(std::move(op.metadata))
+          .setOutstandingPacketMetadata(op.metadata)
           .build());
 
   ASSERT_EQ(9, conn->outstandings.packetCount[PacketNumberSpace::AppData]);
@@ -3124,9 +3187,12 @@ TEST_F(QuicLossFunctionsTest, TestReorderingThresholdNonDSRIgnoreReorderBurst) {
       itr++;
     }
   }
+  auto& ackState = getAckState(*conn, PacketNumberSpace::AppData);
+  ackState.largestAckedByPeer =
+      ackState.largestNonDsrSequenceNumberAckedByPeer = 10;
   auto lossEvent = detectLossPackets(
       *conn,
-      10,
+      ackState,
       testingLossMarkFunc,
       TimePoint(90ms),
       PacketNumberSpace::AppData,

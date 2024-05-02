@@ -138,7 +138,8 @@ void Bbr2CongestionController::onPacketAckOrLoss(
             << ")";
   };
 
-  if (lossEvent && lossEvent->lostPackets > 0) {
+  if (lossEvent && lossEvent->lostPackets > 0 &&
+      conn_.transportSettings.ccaConfig.conservativeRecovery) {
     // The pseudo code in BBRHandleLostPacket is included in
     // updateProbeBwCyclePhase. No need to repeat it here.
 
@@ -146,6 +147,9 @@ void Bbr2CongestionController::onPacketAckOrLoss(
     // non-persistent congestion
     saveCwnd();
     inPacketConservation_ = true;
+    // Mark the connection as app-limited so bw samples during recovery are not
+    // taken into account.
+    setAppLimited();
     packetConservationStartTime_ = Clock::now();
     if (lossEvent->persistentCongestion) {
       cwndBytes_ = kMinCwndInMssForBbr * conn_.udpSendPacketLen;
@@ -166,6 +170,9 @@ void Bbr2CongestionController::onPacketAckOrLoss(
     if (appLimited_ &&
         appLimitedLastSendTime_ <= ackEvent->largestNewlyAckedPacketSentTime) {
       appLimited_ = false;
+      if (conn_.qLogger) {
+        conn_.qLogger->addAppUnlimitedUpdate();
+      }
     }
 
     if (inPacketConservation_ &&
@@ -238,6 +245,9 @@ bool Bbr2CongestionController::isAppLimited() const {
 void Bbr2CongestionController::setAppLimited() noexcept {
   appLimited_ = true;
   appLimitedLastSendTime_ = Clock::now();
+  if (conn_.qLogger) {
+    conn_.qLogger->addAppLimitedUpdate();
+  }
 }
 
 // Internals
@@ -297,7 +307,7 @@ void Bbr2CongestionController::setCwnd(
   auto inflightMax = addQuantizationBudget(
       getBDPWithGain(cwndGain_) + maxExtraAckedFilter_.GetBest());
   // BBRModulateCwndForRecovery()
-  if (lostBytes > 0) {
+  if (lostBytes > 0 && !conn_.transportSettings.ccaConfig.ignoreLoss) {
     cwndBytes_ = std::max(
         cwndBytes_ - std::min(lostBytes, cwndBytes_),
         kMinCwndInMssForBbr * conn_.udpSendPacketLen);
@@ -345,7 +355,8 @@ void Bbr2CongestionController::setCwnd(
 
 void Bbr2CongestionController::checkProbeRttDone() {
   auto timeNow = Clock::now();
-  if (probeRttDoneTimestamp_ && timeNow > *probeRttDoneTimestamp_) {
+  if ((probeRttDoneTimestamp_ && timeNow > *probeRttDoneTimestamp_) ||
+      conn_.lossState.inflightBytes == 0) {
     // Schedule the next ProbeRTT
     probeRttMinTimestamp_ = timeNow;
     restoreCwnd();
@@ -988,7 +999,10 @@ void Bbr2CongestionController::getStats(
 void Bbr2CongestionController::updatePacingAndCwndGain() {
   switch (state_) {
     case State::Startup:
-      pacingGain_ = kStartupPacingGain;
+      pacingGain_ =
+          conn_.transportSettings.ccaConfig.overrideStartupPacingGain > 0
+          ? conn_.transportSettings.ccaConfig.overrideStartupPacingGain
+          : kStartupPacingGain;
       cwndGain_ = kStartupCwndGain;
       break;
     case State::Drain:

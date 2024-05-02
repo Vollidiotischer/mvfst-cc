@@ -15,21 +15,15 @@ std::deque<quic::OutstandingPacketWrapper>::reverse_iterator
 getPreviousOutstandingPacket(
     quic::QuicConnectionStateBase& conn,
     quic::PacketNumberSpace packetNumberSpace,
-    std::deque<quic::OutstandingPacketWrapper>::reverse_iterator from) {
+    const std::deque<quic::OutstandingPacketWrapper>::reverse_iterator& from,
+    bool includeLost = false,
+    bool includeScheduledForDestruction = false) {
   return std::find_if(
       from, conn.outstandings.packets.rend(), [=](const auto& op) {
-        return !op.declaredLost &&
-            packetNumberSpace == op.packet.header.getPacketNumberSpace();
-      });
-}
-std::deque<quic::OutstandingPacketWrapper>::reverse_iterator
-getPreviousOutstandingPacketIncludingLost(
-    quic::QuicConnectionStateBase& conn,
-    quic::PacketNumberSpace packetNumberSpace,
-    std::deque<quic::OutstandingPacketWrapper>::reverse_iterator from) {
-  return std::find_if(
-      from, conn.outstandings.packets.rend(), [=](const auto& op) {
-        return packetNumberSpace == op.packet.header.getPacketNumberSpace();
+        return (includeLost || !op.declaredLost) &&
+            packetNumberSpace == op.packet.header.getPacketNumberSpace() &&
+            (includeScheduledForDestruction ||
+             !op.metadata.scheduledForDestruction);
       });
 }
 
@@ -281,17 +275,15 @@ std::deque<OutstandingPacketWrapper>::iterator getFirstOutstandingPacket(
 
 std::deque<OutstandingPacketWrapper>::reverse_iterator getLastOutstandingPacket(
     QuicConnectionStateBase& conn,
-    PacketNumberSpace packetNumberSpace) {
+    PacketNumberSpace packetNumberSpace,
+    bool includeLost,
+    bool includeScheduledForDestruction) {
   return getPreviousOutstandingPacket(
-      conn, packetNumberSpace, conn.outstandings.packets.rbegin());
-}
-
-std::deque<OutstandingPacketWrapper>::reverse_iterator
-getLastOutstandingPacketIncludingLost(
-    QuicConnectionStateBase& conn,
-    PacketNumberSpace packetNumberSpace) {
-  return getPreviousOutstandingPacketIncludingLost(
-      conn, packetNumberSpace, conn.outstandings.packets.rbegin());
+      conn,
+      packetNumberSpace,
+      conn.outstandings.packets.rbegin(),
+      includeLost,
+      includeScheduledForDestruction);
 }
 
 std::deque<OutstandingPacketWrapper>::iterator getNextOutstandingPacket(
@@ -301,7 +293,8 @@ std::deque<OutstandingPacketWrapper>::iterator getNextOutstandingPacket(
   return std::find_if(
       from, conn.outstandings.packets.end(), [=](const auto& op) {
         return !op.declaredLost &&
-            packetNumberSpace == op.packet.header.getPacketNumberSpace();
+            packetNumberSpace == op.packet.header.getPacketNumberSpace() &&
+            !op.metadata.scheduledForDestruction;
       });
 }
 

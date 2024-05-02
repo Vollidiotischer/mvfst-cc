@@ -20,7 +20,6 @@
 #include <folly/io/async/SSLContext.h>
 #include <folly/io/async/ScopedEventBaseThread.h>
 #include <folly/io/async/test/MockAsyncTransport.h>
-#include <folly/ssl/Init.h>
 
 #include <quic/QuicConstants.h>
 #include <quic/common/test/TestUtils.h>
@@ -74,7 +73,6 @@ class ServerHandshakeTest : public Test {
   }
 
   void SetUp() override {
-    folly::ssl::init();
     // This client context is used outside the context of QUIC in this test, so
     // we have to manually configure the QUIC record customizations.
     clientCtx = quic::test::createClientCtx();
@@ -366,6 +364,26 @@ class ServerHandshakeTest : public Test {
   bool inRoundScope_{false};
   bool waitForData{false};
 };
+
+TEST_F(ServerHandshakeTest, TestGetExportedKeyingMaterial) {
+  // Sanity check. getExportedKeyingMaterial() should return nullptr prior to
+  // an handshake.
+  auto ekm = handshake->getExportedKeyingMaterial(
+      "EXPORTER-Some-Label", folly::none, 32);
+  EXPECT_TRUE(!ekm.has_value());
+
+  clientServerRound();
+  serverClientRound();
+  ekm = handshake->getExportedKeyingMaterial(
+      "EXPORTER-Some-Label", folly::none, 32);
+  ASSERT_TRUE(ekm.has_value());
+  EXPECT_EQ(ekm->size(), 32);
+
+  ekm = handshake->getExportedKeyingMaterial(
+      "EXPORTER-Some-Label", folly::ByteRange(), 32);
+  ASSERT_TRUE(ekm.has_value());
+  EXPECT_EQ(ekm->size(), 32);
+}
 
 TEST_F(ServerHandshakeTest, TestHandshakeSuccess) {
   clientServerRound();

@@ -89,7 +89,7 @@ void QuicServerWorker::bind(
     case SetEventCallback::RECVMSG_MULTISHOT:
       socket_->setRecvmsgMultishotCallback(this);
       break;
-  };
+  }
   // TODO this totally doesn't work, we can't apply socket options before
   // bind, since bind creates the fd.
   if (socketOptions_) {
@@ -651,7 +651,12 @@ QuicServerTransport::Ptr QuicServerWorker::makeTransport(
     trans->setCongestionControllerFactory(ccFactory_);
     trans->setTransportStatsCallback(statsCallback_.get()); // ok if nullptr
     if (quicVersion == QuicVersion::MVFST_EXPERIMENTAL) {
-      transportSettings_.initCwndInMss = 45;
+      transportSettings_.initCwndInMss = 30;
+    }
+    if (quicVersion == QuicVersion::MVFST_EXPERIMENTAL3) {
+      // Use twice the default pacing gain to make BBRv2's startup behavior
+      // similar to BBRv1's.
+      transportSettings_.ccaConfig.overrideStartupPacingGain = 2 * 2.89;
     }
 
     auto transportSettings = transportSettingsOverrideFn_
@@ -952,10 +957,15 @@ void QuicServerWorker::sendResetPacket(
     return;
   }
   auto packetSize = networkData.getTotalData();
+  if (packetSize <= kMinStatelessPacketSize) {
+    // We must decrease the packet size to prevent reset loops. If it's already
+    // too small, we can't send one.
+    return;
+  }
   auto resetSize = std::min<uint16_t>(packetSize, kDefaultMaxUDPPayload);
   // Per the spec, less than 43 we should respond with packet size - 1.
   if (packetSize < 43) {
-    resetSize = std::max<uint16_t>(packetSize - 1, kMinStatelessPacketSize);
+    resetSize = packetSize - 1;
   } else {
     resetSize = std::max<uint16_t>(
         folly::Random::secureRand32() % resetSize, kMinStatelessPacketSize);

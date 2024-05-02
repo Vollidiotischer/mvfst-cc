@@ -64,8 +64,6 @@ class QuicClientTransportIntegrationTest : public TestWithParam<TestingParams> {
     qEvb_ = std::make_shared<FollyQuicEventBase>(&eventbase_);
   }
   void SetUp() override {
-    folly::ssl::init();
-
     // Fizz is the hostname for the server cert.
     hostname = "Fizz";
     serverCtx = test::createServerCtx();
@@ -4046,7 +4044,7 @@ TEST_F(
                     .buildPacket();
   EXPECT_CALL(
       readCb,
-      readError(streamId, IsError(LocalErrorCode::CONNECTION_ABANDONED)));
+      readError(streamId, IsError(LocalErrorCode::NEW_VERSION_NEGOTIATED)));
   EXPECT_CALL(deliveryCallback, onCanceled(streamId, write->length()));
   EXPECT_THROW(deliverData(packet.second->coalesce()), std::runtime_error);
 

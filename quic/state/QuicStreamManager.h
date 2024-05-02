@@ -406,17 +406,7 @@ class QuicStreamManager {
   /*
    * Clear all the currently open streams.
    */
-  void clearOpenStreams() {
-    openBidirectionalLocalStreams_.clear();
-    openUnidirectionalLocalStreams_.clear();
-    openBidirectionalPeerStreams_.clear();
-    openUnidirectionalPeerStreams_.clear();
-    openBidirectionalLocalStreamGroups_.clear();
-    openUnidirectionalLocalStreamGroups_.clear();
-    peerUnidirectionalStreamGroupsSeen_.clear();
-    peerBidirectionalStreamGroupsSeen_.clear();
-    streams_.clear();
-  }
+  void clearOpenStreams();
 
   /*
    * Return a const reference to the underlying container holding the stream
@@ -467,15 +457,6 @@ class QuicStreamManager {
    * stream priority is update, false otherwise.
    */
   bool setStreamPriority(StreamId id, Priority priority);
-
-  // TODO figure out a better interface here.
-  /*
-   * Returns a mutable reference to the container holding the writable stream
-   * IDs.
-   */
-  auto& writableStreams() {
-    return writableStreams_;
-  }
 
   auto& writableDSRStreams() {
     return writableDSRStreams_;

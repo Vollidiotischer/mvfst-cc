@@ -308,11 +308,6 @@ DataPathResult continuousMemoryBuildScheduleEncrypt(
   }
   // TODO: I think we should add an API that doesn't need a buffer.
   bool ret = ioBufBatch.write(nullptr /* no need to pass buf */, encodedSize);
-  // update stats and connection
-  if (ret) {
-    QUIC_STATS(connection.statsCallback, onWrite, encodedSize);
-    QUIC_STATS(connection.statsCallback, onPacketSent);
-  }
   return DataPathResult::makeWriteResult(
       ret, std::move(result), encodedSize, encodedBodySize);
 }
@@ -384,11 +379,6 @@ DataPathResult iobufChainBasedBuildScheduleEncrypt(
             << " encodedBodySize=" << encodedBodySize;
   }
   bool ret = ioBufBatch.write(std::move(packetBuf), encodedSize);
-  if (ret) {
-    // update stats and connection
-    QUIC_STATS(connection.statsCallback, onWrite, encodedSize);
-    QUIC_STATS(connection.statsCallback, onPacketSent);
-  }
   return DataPathResult::makeWriteResult(
       ret, std::move(result), encodedSize, encodedBodySize);
 }
@@ -467,7 +457,7 @@ void handleRetransmissionWritten(
     uint64_t frameOffset,
     uint64_t frameLen,
     bool frameFin,
-    std::deque<StreamBuffer>::iterator lossBufferIter) {
+    CircularDeque<StreamBuffer>::iterator lossBufferIter) {
   auto bufferLen = lossBufferIter->data.chainLength();
   Buf bufWritten;
   if (frameLen == bufferLen && frameFin == lossBufferIter->eof) {
@@ -892,9 +882,7 @@ void updateConnection(
       // conn.lossState.inflightBytes isn't updated until below
       // conn.outstandings.numOutstanding() + 1 since we're emplacing here
       conn.lossState.totalBytesSent,
-      conn.lossState.totalBodyBytesSent,
       conn.lossState.inflightBytes + encodedSize,
-      conn.outstandings.numOutstanding() + 1,
       conn.lossState,
       conn.writeCount,
       std::move(detailsPerStream),
@@ -1524,6 +1512,22 @@ WriteQuicDataResult writeConnectionDataToSocket(
       : connection.transportSettings.maxBatchSize;
 
   uint64_t bytesWritten = 0;
+  uint64_t shortHeaderPadding = 0;
+  uint64_t shortHeaderPaddingCount = 0;
+  SCOPE_EXIT {
+    auto nSent = ioBufBatch.getPktSent();
+    if (nSent > 0) {
+      QUIC_STATS(connection.statsCallback, onPacketsSent, nSent);
+      QUIC_STATS(connection.statsCallback, onWrite, bytesWritten);
+      if (shortHeaderPadding > 0) {
+        QUIC_STATS(
+            connection.statsCallback,
+            onShortHeaderPaddingBatch,
+            shortHeaderPaddingCount,
+            shortHeaderPadding);
+      }
+    }
+  };
 
   while (scheduler.hasData() && ioBufBatch.getPktSent() < packetLimit &&
          ((ioBufBatch.getPktSent() < batchSize) ||
@@ -1567,6 +1571,10 @@ WriteQuicDataResult writeConnectionDataToSocket(
     // pretend write was also successful but packet is lost somewhere in the
     // network.
     bytesWritten += ret.encodedSize;
+    if (ret.result && ret.result->shortHeaderPadding > 0) {
+      shortHeaderPaddingCount++;
+      shortHeaderPadding += ret.result->shortHeaderPadding;
+    }
 
     auto& result = ret.result;
     updateConnection(
@@ -1749,8 +1757,7 @@ bool hasAckDataToWrite(const QuicConnectionStateBase& conn) {
 WriteDataReason hasNonAckDataToWrite(const QuicConnectionStateBase& conn) {
   if (cryptoHasWritableData(conn)) {
     VLOG(10) << nodeToString(conn.nodeType)
-             << " needs write because of crypto stream"
-             << " " << conn;
+             << " needs write because of crypto stream" << " " << conn;
     return WriteDataReason::CRYPTO_STREAM;
   }
   if (!conn.oneRttWriteCipher &&
@@ -1835,7 +1842,10 @@ void implicitAckCryptoStream(
       conn,
       packetNumSpace,
       implicitAck,
-      [&](auto&, auto& packetFrame, auto&) {
+      [](const auto&) {
+        // ackedPacketVisitor. No action needed.
+      },
+      [&](auto&, auto& packetFrame) {
         switch (packetFrame.type()) {
           case QuicWriteFrame::Type::WriteCryptoFrame: {
             const WriteCryptoFrame& frame = *packetFrame.asWriteCryptoFrame();

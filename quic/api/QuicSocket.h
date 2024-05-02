@@ -18,6 +18,7 @@
 #include <quic/common/events/QuicEventBase.h>
 #include <quic/common/udpsocket/QuicAsyncUDPSocket.h>
 #include <quic/congestion_control/Bandwidth.h>
+#include <quic/handshake/TransportParameters.h>
 #include <quic/observer/SocketObserverContainer.h>
 #include <quic/observer/SocketObserverTypes.h>
 #include <quic/state/QuicConnectionStats.h>
@@ -278,6 +279,11 @@ class QuicSocket {
     folly::Optional<QuicErrorCode> streamWriteError;
   };
 
+  // Returns folly::none before the handshake is complete, otherwise is always
+  // non-empty.
+  virtual folly::Optional<std::vector<TransportParameter>>
+  getPeerTransportParams() const = 0;
+
   /**
    * Sets connection setup callback. This callback must be set before using the
    * socket.
@@ -395,6 +401,15 @@ class QuicSocket {
   getSelfCertificate() const {
     return nullptr;
   }
+
+  /**
+   * Derive exported key material (RFC5705) from the transport's TLS layer, if
+   * the transport is capable.
+   */
+  virtual folly::Optional<std::vector<uint8_t>> getExportedKeyingMaterial(
+      const std::string& label,
+      const folly::Optional<folly::ByteRange>& context,
+      uint16_t keyLength) const = 0;
 
   /**
    * Determine if transport is open and ready to read or write.
@@ -543,6 +558,12 @@ class QuicSocket {
    */
   virtual folly::Expected<uint64_t, LocalErrorCode> getMaxWritableOnStream(
       StreamId id) const = 0;
+
+  /**
+   * Similar to getMaxWritableOnStream() above, but returns the value for the
+   * whole connection.
+   */
+  [[nodiscard]] virtual uint64_t maxWritableOnConn() const = 0;
 
   /**
    * Sets the flow control window for the connection.
@@ -752,7 +773,7 @@ class QuicSocket {
    * };
    */
 
-  using PeekIterator = std::deque<StreamBuffer>::const_iterator;
+  using PeekIterator = CircularDeque<StreamBuffer>::const_iterator;
   class PeekCallback {
    public:
     virtual ~PeekCallback() = default;

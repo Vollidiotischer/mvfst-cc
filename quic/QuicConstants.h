@@ -190,7 +190,11 @@ BETTER_ENUM(
     // Control connection migration
     CONNECTION_MIGRATION = 0x10006,
     // Control server-initiated key update interval
-    KEY_UPDATE_INTERVAL = 0x10007)
+    KEY_UPDATE_INTERVAL = 0x10007,
+    // Controls new stream blocked condition.
+    USE_NEW_STREAM_BLOCKED_CONDITION = 0x10008,
+    // Controls autotune flow control on streams.
+    AUTOTUNE_RECV_STREAM_FLOW_CONTROL = 0x10009)
 
 enum class FrameType : uint64_t {
   PADDING = 0x00,
@@ -294,12 +298,17 @@ enum class LocalErrorCode : uint64_t {
   STREAM_CLOSED = 0x40000002,
   STREAM_NOT_EXISTS = 0x40000003,
   CREATING_EXISTING_STREAM = 0x40000004,
+
+  // Should be used when we're closing the connection locally because of an
+  // error.
+  // If there is no error and connection need to be closed, use
+  // TransportErrorCode::NO_ERROR instead.
   SHUTTING_DOWN = 0x40000005,
+
   RESET_CRYPTO_STREAM = 0x40000006,
   CWND_OVERFLOW = 0x40000007,
   INFLIGHT_BYTES_OVERFLOW = 0x40000008,
   LOST_BYTES_OVERFLOW = 0x40000009,
-  CONGESTION_CONTROL_ERROR = 0x4000000A,
   // This is a retryable error. When encountering this error,
   // the user should retry the request.
   NEW_VERSION_NEGOTIATED = 0x4000000A,
@@ -322,6 +331,7 @@ enum class LocalErrorCode : uint64_t {
   KNOB_FRAME_UNSUPPORTED = 0x4000001B,
   PACER_NOT_AVAILABLE = 0x4000001C,
   RTX_POLICIES_LIMIT_EXCEEDED = 0x4000001D,
+  CONGESTION_CONTROL_ERROR = 0x4000001E,
 };
 
 enum class QuicNodeType : bool {
@@ -344,6 +354,7 @@ enum class QuicVersion : uint32_t {
   // MVFST_EXPERIMENTAL2 enables including and using cwnd hints in 0-rtt session
   // tickets in QuicServerWorker.cpp
   MVFST_EXPERIMENTAL2 = 0xfaceb011, // Experimental alias for MVFST
+  // MVFST_EXPERIMENTAL3 is used to apply a 2x pace scaling for BBRv2
   MVFST_EXPERIMENTAL3 = 0xfaceb013, // Experimental alias for MVFST
 };
 

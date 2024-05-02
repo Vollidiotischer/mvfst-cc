@@ -14,8 +14,7 @@
 namespace quic {
 
 void AckEvent::AckPacket::DetailsPerStream::recordFrameDelivered(
-    const WriteStreamFrame& frame,
-    const bool retransmission) {
+    const WriteStreamFrame& frame) {
   if (!frame.len) { // may be FIN only
     return;
   }
@@ -24,18 +23,13 @@ void AckEvent::AckPacket::DetailsPerStream::recordFrameDelivered(
       std::make_tuple(frame.streamId),
       std::make_tuple());
   auto& outstandingPacketStreamDetails = it->second;
-  outstandingPacketStreamDetails.streamBytesAcked += frame.len;
-  if (retransmission) {
-    outstandingPacketStreamDetails.streamBytesAckedByRetrans += frame.len;
-  }
   if (frame.fromBufMeta) {
     outstandingPacketStreamDetails.streamPacketIdx = frame.streamPacketIdx;
   }
 }
 
 void AckEvent::AckPacket::DetailsPerStream::recordFrameAlreadyDelivered(
-    const WriteStreamFrame& frame,
-    const bool /* retransmission */) {
+    const WriteStreamFrame& frame) {
   if (!frame.len) { // may be FIN only
     return;
   }
@@ -52,33 +46,19 @@ void AckEvent::AckPacket::DetailsPerStream::recordFrameAlreadyDelivered(
   }
 }
 
-void AckEvent::AckPacket::DetailsPerStream::recordDeliveryOffsetUpdate(
-    StreamId streamId,
-    uint64_t newOffset) {
-  auto [it, inserted] = emplace(
-      std::piecewise_construct, std::make_tuple(streamId), std::make_tuple());
-
-  auto& outstandingPacketStreamDetails = it->second;
-  CHECK(
-      !outstandingPacketStreamDetails.maybeNewDeliveryOffset.has_value() ||
-      outstandingPacketStreamDetails.maybeNewDeliveryOffset.value() <
-          newOffset);
-  outstandingPacketStreamDetails.maybeNewDeliveryOffset = newOffset;
-}
-
 AckEvent::AckPacket::AckPacket(
     quic::PacketNum packetNumIn,
     uint64_t nonDsrPacketSequenceNumberIn,
-    OutstandingPacketMetadata&& outstandingPacketMetadataIn,
-    DetailsPerStream&& detailsPerStreamIn,
+    const OutstandingPacketMetadata& outstandingPacketMetadataIn, // NOLINT
+    const DetailsPerStream& detailsPerStreamIn, // NOLINT
     folly::Optional<OutstandingPacketWrapper::LastAckedPacketInfo>
         lastAckedPacketInfoIn,
     bool isAppLimitedIn,
     folly::Optional<std::chrono::microseconds>&& receiveRelativeTimeStampUsec)
     : packetNum(packetNumIn),
       nonDsrPacketSequenceNumber(nonDsrPacketSequenceNumberIn),
-      outstandingPacketMetadata(std::move(outstandingPacketMetadataIn)),
-      detailsPerStream(std::move(detailsPerStreamIn)),
+      outstandingPacketMetadata(outstandingPacketMetadataIn), // NOLINT
+      detailsPerStream(detailsPerStreamIn), // NOLINT
       lastAckedPacketInfo(std::move(lastAckedPacketInfoIn)),
       receiveRelativeTimeStampUsec(std::move(receiveRelativeTimeStampUsec)),
       isAppLimited(isAppLimitedIn) {}
@@ -98,8 +78,8 @@ AckEvent::AckPacket::Builder::setNonDsrPacketSequenceNumber(
 
 AckEvent::AckPacket::Builder&&
 AckEvent::AckPacket::Builder::setOutstandingPacketMetadata(
-    OutstandingPacketMetadata&& outstandingPacketMetadataIn) {
-  outstandingPacketMetadata = std::move(outstandingPacketMetadataIn);
+    OutstandingPacketMetadata& outstandingPacketMetadataIn) {
+  outstandingPacketMetadata = &outstandingPacketMetadataIn;
   return std::move(*this);
 }
 
@@ -112,9 +92,8 @@ AckEvent::AckPacket::Builder::setDetailsPerStream(
 
 AckEvent::AckPacket::Builder&&
 AckEvent::AckPacket::Builder::setLastAckedPacketInfo(
-    folly::Optional<OutstandingPacketWrapper::LastAckedPacketInfo>&&
-        lastAckedPacketInfoIn) {
-  lastAckedPacketInfo = std::move(lastAckedPacketInfoIn);
+    OutstandingPacketWrapper::LastAckedPacketInfo* lastAckedPacketInfoIn) {
+  lastAckedPacketInfo = lastAckedPacketInfoIn;
   return std::move(*this);
 }
 
@@ -133,14 +112,17 @@ AckEvent::AckPacket::Builder::setReceiveDeltaTimeStamp(
 
 AckEvent::AckPacket AckEvent::AckPacket::Builder::build() && {
   CHECK(packetNum.has_value());
-  CHECK(outstandingPacketMetadata.has_value());
+  CHECK(outstandingPacketMetadata);
   CHECK(detailsPerStream.has_value());
   return AckEvent::AckPacket(
       packetNum.value(),
       nonDsrPacketSequenceNumber.value(),
-      std::move(outstandingPacketMetadata.value()),
-      std::move(detailsPerStream.value()),
-      std::move(lastAckedPacketInfo),
+      *outstandingPacketMetadata,
+      detailsPerStream.value(),
+      lastAckedPacketInfo
+          ? folly::Optional<OutstandingPacket::LastAckedPacketInfo>(
+                *lastAckedPacketInfo)
+          : folly::none,
       isAppLimited,
       std::move(receiveRelativeTimeStampUsec));
 }

@@ -1127,6 +1127,32 @@ void QuicServerTransport::registerAllTransportKnobParamHandlers() {
         server_conn->transportSettings.keyUpdatePacketCountInterval = val;
         VLOG(3) << "KEY_UPDATE_INTERVAL KnobParam received: " << val;
       });
+  registerTransportKnobParamHandler(
+      static_cast<uint64_t>(
+          TransportKnobParamId::USE_NEW_STREAM_BLOCKED_CONDITION),
+      [](QuicServerTransport* serverTransport, TransportKnobParam::Val value) {
+        CHECK(serverTransport);
+        bool useNewStreamBlockedCondition =
+            static_cast<bool>(std::get<uint64_t>(value));
+        auto server_conn = serverTransport->serverConn_;
+        server_conn->transportSettings.useNewStreamBlockedCondition =
+            useNewStreamBlockedCondition;
+        VLOG(3) << "USE_NEW_STREAM_BLOCKED_CONDITION KnobParam received: "
+                << useNewStreamBlockedCondition;
+      });
+  registerTransportKnobParamHandler(
+      static_cast<uint64_t>(
+          TransportKnobParamId::AUTOTUNE_RECV_STREAM_FLOW_CONTROL),
+      [](QuicServerTransport* serverTransport, TransportKnobParam::Val value) {
+        CHECK(serverTransport);
+        bool autotuneReceiveStreamFlowControl =
+            static_cast<bool>(std::get<uint64_t>(value));
+        auto server_conn = serverTransport->serverConn_;
+        server_conn->transportSettings.autotuneReceiveStreamFlowControl =
+            autotuneReceiveStreamFlowControl;
+        VLOG(3) << "AUTOTUNE_RECV_STREAM_FLOW_CONTROL KnobParam received: "
+                << autotuneReceiveStreamFlowControl;
+      });
 }
 
 QuicConnectionStats QuicServerTransport::getConnectionsStats() const {
@@ -1173,6 +1199,18 @@ void QuicServerTransport::logTimeBasedStats() const {
       QUIC_STATS(conn_->statsCallback, onBandwidthSample, bitsPerSecSample);
     }
   }
+}
+
+folly::Optional<std::vector<TransportParameter>>
+QuicServerTransport::getPeerTransportParams() const {
+  if (serverConn_ && serverConn_->serverHandshakeLayer) {
+    auto maybeParams =
+        serverConn_->serverHandshakeLayer->getClientTransportParams();
+    if (maybeParams) {
+      return maybeParams->parameters;
+    }
+  }
+  return folly::none;
 }
 
 } // namespace quic

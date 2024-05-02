@@ -7,6 +7,7 @@
 
 #include <quic/fizz/client/handshake/FizzClientHandshake.h>
 
+#include <fizz/protocol/Exporter.h>
 #include <quic/client/state/ClientStateMachine.h>
 #include <quic/codec/QuicPacketBuilder.h>
 #include <quic/fizz/client/handshake/FizzClientExtensions.h>
@@ -139,12 +140,27 @@ bool FizzClientHandshake::isTLSResumed() const {
   return pskType && *pskType == fizz::PskType::Resumption;
 }
 
-std::unique_ptr<std::vector<unsigned char>>
+folly::Optional<std::vector<uint8_t>>
 FizzClientHandshake::getExportedKeyingMaterial(
-    const std::string& /* label */,
-    const std::vector<unsigned char>* /* context */,
-    uint16_t /* keyLength */) {
-  throw std::runtime_error("getExportedKeyingMaterial is not implemented");
+    const std::string& label,
+    const folly::Optional<folly::ByteRange>& context,
+    uint16_t keyLength) {
+  const auto& ems = state_.exporterMasterSecret();
+  const auto cipherSuite = state_.cipher();
+  if (!ems.hasValue() || !cipherSuite.hasValue()) {
+    return folly::none;
+  }
+
+  auto ekm = fizz::Exporter::getExportedKeyingMaterial(
+      *state_.context()->getFactory(),
+      cipherSuite.value(),
+      ems.value()->coalesce(),
+      label,
+      context == folly::none ? nullptr : folly::IOBuf::wrapBuffer(*context),
+      keyLength);
+
+  std::vector<uint8_t> result(ekm->coalesce());
+  return result;
 }
 
 EncryptionLevel FizzClientHandshake::getReadRecordLayerEncryptionLevel() {

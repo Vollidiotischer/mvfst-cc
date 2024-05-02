@@ -92,8 +92,7 @@ calculateAlarmDuration(const QuicConnectionStateBase& conn) {
              << " lastSentPacketTime="
              << lastSentPacketTime.time_since_epoch().count()
              << " now=" << now.time_since_epoch().count()
-             << " alarm=" << alarmDuration.count() << "us"
-             << " deadline="
+             << " alarm=" << alarmDuration.count() << "us" << " deadline="
              << (lastSentPacketTime + alarmDuration).time_since_epoch().count()
              << " " << conn;
   }
@@ -191,8 +190,8 @@ bool processOutstandingsForLoss(
     QuicConnectionStateBase& conn,
     PacketNum largestAcked,
     const PacketNumberSpace& pnSpace,
-    const InlineMap<StreamId, PacketNum, 20>& largestDsrAcked,
-    const folly::Optional<PacketNum>& largestNonDsrAcked,
+    const InlineMap<StreamId, PacketNum, 20>& largestDsrAckedSequenceNumber,
+    const folly::Optional<PacketNum>& largestNonDsrAckedSequenceNumber,
     const TimePoint& lossTime,
     const std::chrono::microseconds& rttSample,
     const LossVisitor& lossVisitor,
@@ -206,7 +205,7 @@ bool processOutstandingsForLoss(
  */
 folly::Optional<CongestionController::LossEvent> detectLossPackets(
     QuicConnectionStateBase& conn,
-    const folly::Optional<PacketNum> largestAcked,
+    const AckState& ackState,
     const LossVisitor& lossVisitor,
     const TimePoint lossTime,
     const PacketNumberSpace pnSpace,
@@ -232,7 +231,7 @@ void onLossDetectionAlarm(
     CHECK(lossTimeAndSpace.first);
     auto lossEvent = detectLossPackets(
         conn,
-        getAckState(conn, lossTimeAndSpace.second).largestAckedByPeer,
+        getAckState(conn, lossTimeAndSpace.second),
         lossVisitor,
         now,
         lossTimeAndSpace.second);
