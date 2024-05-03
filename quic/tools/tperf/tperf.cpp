@@ -903,6 +903,7 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
     LOG(INFO) << "TPerfClient connecting to " << addr.describe();
     quicClient_->start(this, this);
 
+    LOG(INFO) << "Starting bw monitoring Thread...";
     this->bw_change_thread =
         std::thread(&TPerfClient::sendBWChangeNotification, this);
 
