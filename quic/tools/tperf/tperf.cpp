@@ -300,10 +300,10 @@ class ServerStreamHandler : public quic::QuicSocket::ConnectionSetupCallback,
     LOG(INFO) << "CC TYPE: "
               << congestionControlTypeToString(
                      this->sock_->getTransportInfo().congestionControlType);
-    const auto& a = this->sock_->getTransportInfo().maybeCCState;
-    if (a.has_value()) {
-      if (a->maybeBandwidthBitsPerSec.has_value()) {
-        LOG(INFO) << "CC STATE: " << a->maybeBandwidthBitsPerSec.value();
+    const auto& cc_state = this->sock_->getTransportInfo().maybeCCState;
+    if (cc_state.has_value()) {
+      if (cc_state->maybeBandwidthBitsPerSec.has_value()) {
+        LOG(INFO) << "CC STATE: " << cc_state->maybeBandwidthBitsPerSec.value();
       }
     }
 
@@ -321,6 +321,12 @@ class ServerStreamHandler : public quic::QuicSocket::ConnectionSetupCallback,
           static_cast<double>(new_bw) / static_cast<double>(old_bw);
 
       if (this->congestion_controller) {
+        auto old_cwnd = this->congestion_controller->getCongestionWindow();
+        auto bw_cap = static_cast<uint16_t>(
+            static_cast<double>(old_cwnd) *
+            (static_cast<double>(new_bw) / static_cast<double>(old_bw)));
+        this->congestion_controller->setPostProbeCWNDCap(bw_cap);
+
         if (FLAGS_own_probe_rtt) {
           this->congestion_controller->availableResourcesUpdatedRTT();
         } else {
@@ -612,12 +618,8 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
     });
   }
 
-  void regularSend(
-      quic::StreamId id,
-      uint64_t toSend,
-      bool eof,
-      uint16_t old_bw,
-      uint16_t new_bw) {
+  void
+  regularSend(quic::StreamId id, bool eof, uint16_t old_bw, uint16_t new_bw) {
     auto sendBuffer = buf_->clone();
 
     // Allocate space for 2 * u16 = 4 Byte
@@ -792,16 +794,13 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
       int bwChangeDetected = 0;
 
       if (file.is_open()) {
-        // Reset file to first char
+        // Reset file read pos to first char / see any file-updates
         file.seekg(0);
         file.clear();
 
         // Read first char (dont advance file ptr)
         int c = file.peek();
         if (c == '1') {
-          // file.put('0');
-          // file.flush();
-
           std::string line;
           if (!std::getline(file, line)) {
             LOG(ERROR)
@@ -809,7 +808,7 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
             goto abort;
           }
 
-          // Reset char
+          // Reset first char to 0
           file.seekp(0);
           file.put('0');
           file.flush();
@@ -826,13 +825,8 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
           uint16_t old_bw = std::stoi(parts[1]);
           uint16_t new_bw = std::stoi(parts[2]);
           LOG(INFO) << "Local Bandwidth change detected";
-          uint64_t toSend = std::min<uint64_t>(4, FLAGS_block_size);
           this->regularSend(
-              this->own_unidirectional_stream_id,
-              toSend,
-              false,
-              old_bw,
-              new_bw);
+              this->own_unidirectional_stream_id, false, old_bw, new_bw);
           this->notifyDataForStream(this->own_unidirectional_stream_id);
         }
       }

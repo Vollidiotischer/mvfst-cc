@@ -46,6 +46,7 @@ class Bbr2CongestionController : public CongestionController {
 
   void availableResourcesUpdatedBW() override;
   void availableResourcesUpdatedRTT() override;
+  void setPostProbeCWNDCap(uint16_t max_cwnd) override;
 
   FOLLY_NODISCARD CongestionControlType type() const noexcept override;
 
@@ -181,6 +182,7 @@ class Bbr2CongestionController : public CongestionController {
   uint64_t cwndBytes_;
   uint64_t previousCwndBytes_{0};
   bool cwndLimitedInRound_{false};
+  std::optional<uint16_t> post_probe_cwnd_limit{std::nullopt};
 
   bool idleRestart_{false};
   bool inPacketConservation_{false};

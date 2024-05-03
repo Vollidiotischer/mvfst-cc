@@ -118,6 +118,7 @@ struct CongestionController {
 
   virtual void availableResourcesUpdatedBW() {}
   virtual void availableResourcesUpdatedRTT() {}
+  virtual void setPostProbeCWNDCap(uint16_t max_cwnd) {}
 
   /**
    * Return the congestion controller's bandwidth estimate, if available.

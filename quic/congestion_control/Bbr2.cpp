@@ -14,6 +14,8 @@
 #include <cstdint>
 #include <cstdlib>
 #include <limits>
+#include <optional>
+#include "quic/congestion_control/Bandwidth.h"
 
 namespace quic {
 
@@ -85,6 +87,10 @@ void Bbr2CongestionController::availableResourcesUpdatedRTT() {
   this->should_probe_rtt = true;
   enterDrain();
   //   this->enterProbeRtt();
+}
+
+void Bbr2CongestionController::setPostProbeCWNDCap(uint16_t max_cwnd) {
+  this->post_probe_cwnd_limit = max_cwnd;
 }
 
 void Bbr2CongestionController::onPacketSent(
@@ -365,9 +371,15 @@ void Bbr2CongestionController::checkProbeRttDone() {
 }
 
 void Bbr2CongestionController::restoreCwnd() {
-  cwndBytes_ = std::max(cwndBytes_, previousCwndBytes_);
+  if (this->post_probe_cwnd_limit.has_value()) {
+    cwndBytes_ = *this->post_probe_cwnd_limit;
+    this->post_probe_cwnd_limit = std::nullopt;
+  } else {
+    cwndBytes_ = std::max(cwndBytes_, previousCwndBytes_);
+  }
   VLOG(6) << "Restored cwnd: " << cwndBytes_;
 }
+
 void Bbr2CongestionController::exitProbeRtt() {
   resetLowerBounds();
   if (filledPipe_) {
@@ -527,21 +539,22 @@ void Bbr2CongestionController::checkDrain() {
     VLOG(6) << "Current inflight" << conn_.lossState.inflightBytes
             << " target inflight " << getTargetInflightWithGain(1.0);
   }
+
+  // Check if BBR estimates the queue was drained
   if (state_ == State::Drain &&
       conn_.lossState.inflightBytes <= getTargetInflightWithGain(1.0)) {
-    enterProbeBW(); /* BBR estimates the queue was drained */
-  }
-
-  if (this->should_probe_bw) {
-    this->should_probe_bw = false;
-    this->enterProbeBW();
-  }
-
-  if (this->should_probe_rtt) {
-    this->should_probe_rtt = false;
-    this->enterProbeRtt();
+    if (this->should_probe_bw) {
+      this->should_probe_bw = false;
+      this->enterProbeBW();
+    } else if (this->should_probe_rtt) {
+      this->should_probe_rtt = false;
+      this->enterProbeRtt();
+    } else {
+      enterProbeBW();
+    }
   }
 }
+
 void Bbr2CongestionController::updateProbeBwCyclePhase(
     uint64_t ackedBytes,
     uint64_t inflightBytesAtLargestAckedPacket,
