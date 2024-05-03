@@ -307,9 +307,9 @@ class ServerStreamHandler : public quic::QuicSocket::ConnectionSetupCallback,
       }
     }
 
-    // If a Message (of length 4) was received, decode the bw and tell the
+    // If a Message (of length 10) was received, decode the bw and tell the
     // congestion controller
-    if (readData->first->length() == 4) {
+    if (readData->first->length() == 10) {
       // Decode the data from the buf
       const uint8_t* readBuf = readData->first->data();
       uint16_t old_bw = (readBuf[0] << 8) | readBuf[1];
@@ -623,7 +623,7 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
     auto sendBuffer = buf_->clone();
 
     // Allocate space for 2 * u16 = 4 Byte
-    sendBuffer->append(4);
+    sendBuffer->append(10);
 
     // Encode data in the sendBuffer
     sendBuffer->unshare();
@@ -787,6 +787,7 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
     if (!fail_logged && !file.is_open()) {
       fail_logged = true;
       LOG(ERROR) << "Could not open file '/tmp/bandwidth_change'";
+      this->bw_thread_running = false;
     }
 
     while (this->bw_thread_running) {
