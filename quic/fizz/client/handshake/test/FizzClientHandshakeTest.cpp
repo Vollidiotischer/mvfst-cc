@@ -88,6 +88,7 @@ class ClientHandshakeTest : public Test, public boost::static_visitor<> {
                                 .setCertificateVerifier(verifier)
                                 .setPskCache(getPskCache())
                                 .setECHPolicy(getECHPolicy())
+                                .setECHRetryCallback(getECHRetryCallback())
                                 .build();
     conn.reset(new QuicClientConnectionState(handshakeFactory));
     conn->readCodec = std::make_unique<QuicReadCodec>(QuicNodeType::Client);
@@ -130,6 +131,11 @@ class ClientHandshakeTest : public Test, public boost::static_visitor<> {
   }
 
   virtual std::shared_ptr<fizz::client::test::MockECHPolicy> getECHPolicy() {
+    return nullptr;
+  }
+
+  virtual std::shared_ptr<fizz::client::test::MockECHRetryCallback>
+  getECHRetryCallback() {
     return nullptr;
   }
 
@@ -533,9 +539,11 @@ class ClientHandshakeZeroRttTest : public ClientHandshakeTest {
   }
 
   std::shared_ptr<QuicPskCache> getPskCache() override {
-    auto pskCache = std::make_shared<BasicQuicPskCache>();
-    pskCache->putPsk(hostname, psk);
-    return pskCache;
+    if (!pskCache_) {
+      pskCache_ = std::make_shared<BasicQuicPskCache>();
+      pskCache_->putPsk(hostname, psk);
+    }
+    return pskCache_;
   }
 
   void connect() override {
@@ -561,6 +569,7 @@ class ClientHandshakeZeroRttTest : public ClientHandshakeTest {
   }
 
   QuicCachedPsk psk;
+  std::shared_ptr<QuicPskCache> pskCache_;
 };
 
 TEST_F(ClientHandshakeZeroRttTest, TestZeroRttSuccess) {
@@ -617,11 +626,20 @@ class ClientHandshakeZeroRttRejectFail : public ClientHandshakeZeroRttTest {
 };
 
 TEST_F(ClientHandshakeZeroRttRejectFail, TestZeroRttRejectionParamsDontMatch) {
+  // Before the handshake, we have not check the early params.
+  ASSERT_FALSE(handshake->getCanResendZeroRtt().has_value());
   clientServerRound();
+  // The server hasn't rejected zero-rtt yet so we should still have the psk.
+  ASSERT_TRUE(pskCache_->getPsk(hostname).has_value());
+
   EXPECT_EQ(handshake->getPhase(), ClientHandshake::Phase::Initial);
   expectHandshakeCipher(false);
   expectZeroRttCipher(true, false);
-  EXPECT_THROW(serverClientRound(), QuicInternalException);
+  EXPECT_NO_THROW(serverClientRound());
+  // After the handshake with rtt rejection, we should have checked the early
+  // params and marked them as invalid
+  ASSERT_TRUE(handshake->getCanResendZeroRtt().has_value());
+  EXPECT_FALSE(handshake->getCanResendZeroRtt().value());
 }
 
 class ClientHandshakeECHPolicyTest : public ClientHandshakeCallbackTest {
@@ -643,14 +661,20 @@ class ClientHandshakeECHPolicyTest : public ClientHandshakeCallbackTest {
     return echPolicy;
   }
 
+  std::shared_ptr<fizz::client::test::MockECHRetryCallback>
+  getECHRetryCallback() override {
+    return echCallback;
+  }
+
   fizz::ech::ECHConfigContentDraft getECHConfigContent() {
     fizz::ech::HpkeSymmetricCipherSuite suite{
         fizz::hpke::KDFId::Sha256, fizz::hpke::AeadId::TLS_AES_128_GCM_SHA256};
     fizz::ech::ECHConfigContentDraft echConfigContent;
     echConfigContent.key_config.config_id = 0xFB;
     echConfigContent.key_config.kem_id = fizz::hpke::KEMId::secp256r1;
-    echConfigContent.key_config.public_key = fizz::detail::encodeECPublicKey(
-        ::fizz::test::getPublicKey(::fizz::test::kP256PublicKey));
+    echConfigContent.key_config.public_key =
+        fizz::openssl::detail::encodeECPublicKey(
+            ::fizz::test::getPublicKey(::fizz::test::kP256PublicKey));
     echConfigContent.key_config.cipher_suites = {suite};
     echConfigContent.maximum_name_length = 100;
     echConfigContent.public_name = folly::IOBuf::copyBuffer("public.dummy.com");
@@ -665,15 +689,18 @@ class ClientHandshakeECHPolicyTest : public ClientHandshakeCallbackTest {
   }
 
   std::shared_ptr<fizz::client::test::MockECHPolicy> echPolicy;
+  std::shared_ptr<fizz::client::test::MockECHRetryCallback> echCallback;
   std::shared_ptr<fizz::ech::ECHConfigManager> echDecrypter;
 };
 
 TEST_F(ClientHandshakeECHPolicyTest, TestECHPolicyHandshake) {
   echPolicy = std::make_shared<fizz::client::test::MockECHPolicy>();
+  echCallback = std::make_shared<fizz::client::test::MockECHRetryCallback>();
   EXPECT_CALL(*echPolicy, getConfig(_))
       .WillOnce(Return(std::vector<fizz::ech::ECHConfig>{getECHConfig()}));
 
-  auto kex = std::make_unique<fizz::OpenSSLECKeyExchange<fizz::P256>>();
+  auto kex = std::make_unique<
+      fizz::openssl::OpenSSLECKeyExchange<fizz::openssl::P256>>();
   kex->setPrivateKey(fizz::test::getPrivateKey(fizz::test::kP256Key));
   echDecrypter = std::make_shared<fizz::ech::ECHConfigManager>();
   echDecrypter->addDecryptionConfig(

@@ -1440,7 +1440,7 @@ TEST_F(QuicTransportTest, ObserverStreamEventBidirectionalLocalOpenClose) {
   transport_->getConnectionState().streamManager->addClosed(id);
   transport_->onNetworkData(
       SocketAddress("::1", 10000),
-      NetworkData(IOBuf::copyBuffer("fake data"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
 
   EXPECT_CALL(*cb1, closeStarted(transport_.get(), _));
   EXPECT_CALL(*cb2, closeStarted(transport_.get(), _));
@@ -1484,7 +1484,7 @@ TEST_F(QuicTransportTest, ObserverStreamEventBidirectionalRemoteOpenClose) {
   transport_->getConnectionState().streamManager->addClosed(id);
   transport_->onNetworkData(
       SocketAddress("::1", 10000),
-      NetworkData(IOBuf::copyBuffer("fake data"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
 
   EXPECT_CALL(*cb1, closeStarted(transport_.get(), _));
   EXPECT_CALL(*cb2, closeStarted(transport_.get(), _));
@@ -1528,7 +1528,7 @@ TEST_F(QuicTransportTest, ObserverStreamEventUnidirectionalLocalOpenClose) {
   transport_->getConnectionState().streamManager->addClosed(id);
   transport_->onNetworkData(
       SocketAddress("::1", 10000),
-      NetworkData(IOBuf::copyBuffer("fake data"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
 
   EXPECT_CALL(*cb1, closeStarted(transport_.get(), _));
   EXPECT_CALL(*cb2, closeStarted(transport_.get(), _));
@@ -1571,7 +1571,7 @@ TEST_F(QuicTransportTest, ObserverStreamEventUnidirectionalRemoteOpenClose) {
   transport_->getConnectionState().streamManager->addClosed(id);
   transport_->onNetworkData(
       SocketAddress("::1", 10000),
-      NetworkData(IOBuf::copyBuffer("fake data"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
 
   EXPECT_CALL(*cb1, closeStarted(transport_.get(), _));
   EXPECT_CALL(*cb2, closeStarted(transport_.get(), _));
@@ -2804,7 +2804,7 @@ TEST_F(QuicTransportTest, NonWritableStreamAPI) {
   EXPECT_CALL(writeCallback_, onStreamWriteReady(streamState->id, _)).Times(0);
   transport_->onNetworkData(
       SocketAddress("::1", 10000),
-      NetworkData(IOBuf::copyBuffer("fake data"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
 
   // Check that write-side APIs return an error
   auto res2 = transport_->notifyPendingWriteOnStream(streamId, &writeCallback_);
@@ -3072,7 +3072,7 @@ TEST_F(QuicTransportTest, FlowControlCallbacks) {
       .WillOnce(Invoke([&](auto) { transport_->createBidirectionalStream(); }));
   transport_->onNetworkData(
       SocketAddress("::1", 10000),
-      NetworkData(IOBuf::copyBuffer("fake data"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
 
   EXPECT_FALSE(conn.streamManager->popFlowControlUpdated().has_value());
 }
@@ -3985,7 +3985,7 @@ TEST_F(QuicTransportTest, NotifyPendingWriteConnAsync) {
   EXPECT_CALL(writeCallback_, onConnectionWriteReady(_));
   transport_->onNetworkData(
       SocketAddress("::1", 10000),
-      NetworkData(IOBuf::copyBuffer("fake data"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
 }
 
 TEST_F(QuicTransportTest, NotifyPendingWriteConnBufferFreeUpSpace) {
@@ -4011,7 +4011,7 @@ TEST_F(QuicTransportTest, NotifyPendingWriteConnBufferFreeUpSpace) {
 
   transport_->onNetworkData(
       SocketAddress("::1", 10000),
-      NetworkData(IOBuf::copyBuffer("fake data"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
 }
 
 TEST_F(QuicTransportTest, NoPacingTimerNoPacing) {
@@ -4066,7 +4066,7 @@ TEST_F(QuicTransportTest, NotifyPendingWriteConnBufferUseTotalSpace) {
 
   transport_->onNetworkData(
       SocketAddress("::1", 10000),
-      NetworkData(IOBuf::copyBuffer("fake data"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
 }
 
 TEST_F(QuicTransportTest, NotifyPendingWriteConnBufferOveruseSpace) {
@@ -4090,7 +4090,7 @@ TEST_F(QuicTransportTest, NotifyPendingWriteConnBufferOveruseSpace) {
 
   transport_->onNetworkData(
       SocketAddress("::1", 10000),
-      NetworkData(IOBuf::copyBuffer("fake data"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
 }
 
 TEST_F(
@@ -4125,7 +4125,7 @@ TEST_F(
 
   transport_->onNetworkData(
       SocketAddress("::1", 10000),
-      NetworkData(IOBuf::copyBuffer("fake data"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
 }
 
 TEST_F(QuicTransportTest, NotifyPendingWriteStreamAsyncConnBlocked) {
@@ -4143,7 +4143,7 @@ TEST_F(QuicTransportTest, NotifyPendingWriteStreamAsyncConnBlocked) {
 
   transport_->onNetworkData(
       SocketAddress("::1", 10000),
-      NetworkData(IOBuf::copyBuffer("fake data"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
 
   EXPECT_CALL(writeCallback_, onStreamWriteReady(stream->id, _));
 
@@ -4155,7 +4155,7 @@ TEST_F(QuicTransportTest, NotifyPendingWriteStreamAsyncConnBlocked) {
       num);
   transport_->onNetworkData(
       SocketAddress("::1", 10000),
-      NetworkData(IOBuf::copyBuffer("fake data"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
 }
 
 TEST_F(QuicTransportTest, NotifyPendingWriteStreamWritableBytesBackpressure) {
@@ -4177,7 +4177,7 @@ TEST_F(QuicTransportTest, NotifyPendingWriteStreamWritableBytesBackpressure) {
 
   transport_->onNetworkData(
       SocketAddress("::1", 10000),
-      NetworkData(IOBuf::copyBuffer("fake data"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
 
   auto mockCongestionController =
       std::make_unique<NiceMock<MockCongestionController>>();
@@ -4200,7 +4200,7 @@ TEST_F(QuicTransportTest, NotifyPendingWriteStreamWritableBytesBackpressure) {
       num);
   transport_->onNetworkData(
       SocketAddress("::1", 10000),
-      NetworkData(IOBuf::copyBuffer("fake data"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
 }
 
 TEST_F(QuicTransportTest, NotifyPendingWriteStreamAsyncStreamBlocked) {
@@ -4217,7 +4217,7 @@ TEST_F(QuicTransportTest, NotifyPendingWriteStreamAsyncStreamBlocked) {
 
   transport_->onNetworkData(
       SocketAddress("::1", 10000),
-      NetworkData(IOBuf::copyBuffer("fake data"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
 
   PacketNum num = 10;
   handleStreamWindowUpdate(
@@ -4227,7 +4227,7 @@ TEST_F(QuicTransportTest, NotifyPendingWriteStreamAsyncStreamBlocked) {
 
   transport_->onNetworkData(
       SocketAddress("::1", 10000),
-      NetworkData(IOBuf::copyBuffer("fake data"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
 }
 
 TEST_F(QuicTransportTest, NotifyPendingWriteConnTwice) {
@@ -4297,7 +4297,7 @@ TEST_F(QuicTransportTest, NotifyPendingWriteConnDuringClose) {
       num);
   transport_->onNetworkData(
       SocketAddress("::1", 10000),
-      NetworkData(IOBuf::copyBuffer("fake data"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
 }
 
 TEST_F(QuicTransportTest, NotifyPendingWriteStreamDuringClose) {
@@ -4326,7 +4326,7 @@ TEST_F(QuicTransportTest, NotifyPendingWriteStreamDuringClose) {
       .WillOnce(Invoke([&](auto, auto) { transport_->close(folly::none); }));
   transport_->onNetworkData(
       SocketAddress("::1", 10000),
-      NetworkData(IOBuf::copyBuffer("fake data"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
 }
 
 TEST_F(QuicTransportTest, WriteStreamFromMiddleOfMap) {
@@ -4450,7 +4450,7 @@ TEST_F(QuicTransportTest, CancelAckTimeout) {
   transport_->getConnectionState().pendingEvents.scheduleAckTimeout = false;
   transport_->onNetworkData(
       SocketAddress("::1", 10128),
-      NetworkData(IOBuf::copyBuffer("MTA New York Service"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
   EXPECT_FALSE(transport_->getAckTimeout()->isTimerCallbackScheduled());
 }
 
@@ -4461,8 +4461,7 @@ TEST_F(QuicTransportTest, ScheduleAckTimeout) {
   transport_->getConnectionState().pendingEvents.scheduleAckTimeout = true;
   transport_->onNetworkData(
       SocketAddress("::1", 10003),
-      NetworkData(
-          IOBuf::copyBuffer("Never on time, always timeout"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
   EXPECT_TRUE(transport_->getAckTimeout()->isTimerCallbackScheduled());
   EXPECT_NEAR(
       transport_->getAckTimeout()->getTimerCallbackTimeRemaining().count(),
@@ -4476,8 +4475,7 @@ TEST_F(QuicTransportTest, ScheduleAckTimeoutSRTTFactor) {
   transport_->getConnectionState().pendingEvents.scheduleAckTimeout = true;
   transport_->onNetworkData(
       SocketAddress("::1", 10003),
-      NetworkData(
-          IOBuf::copyBuffer("Never on time, always timeout"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
   EXPECT_TRUE(transport_->getAckTimeout()->isTimerCallbackScheduled());
   EXPECT_NEAR(
       transport_->getAckTimeout()->getTimerCallbackTimeRemaining().count(),
@@ -4495,8 +4493,7 @@ TEST_F(QuicTransportTest, ScheduleAckTimeoutAckFreq) {
   transport_->getConnectionState().pendingEvents.scheduleAckTimeout = true;
   transport_->onNetworkData(
       SocketAddress("::1", 10003),
-      NetworkData(
-          IOBuf::copyBuffer("Never on time, always timeout"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
   EXPECT_TRUE(transport_->getAckTimeout()->isTimerCallbackScheduled());
   EXPECT_NEAR(
       transport_->getAckTimeout()->getTimerCallbackTimeRemaining().count(),
@@ -4512,8 +4509,7 @@ TEST_F(QuicTransportTest, ScheduleAckTimeoutFromMaxAckDelay) {
   transport_->getConnectionState().pendingEvents.scheduleAckTimeout = true;
   transport_->onNetworkData(
       SocketAddress("::1", 10003),
-      NetworkData(
-          IOBuf::copyBuffer("Never on time, always timeout"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
   EXPECT_TRUE(transport_->getAckTimeout()->isTimerCallbackScheduled());
   EXPECT_NEAR(
       transport_->getAckTimeout()->getTimerCallbackTimeRemaining().count(),
@@ -4527,8 +4523,7 @@ TEST_F(QuicTransportTest, CloseTransportCancelsAckTimeout) {
   transport_->getConnectionState().pendingEvents.scheduleAckTimeout = true;
   transport_->onNetworkData(
       SocketAddress("::1", 10003),
-      NetworkData(
-          IOBuf::copyBuffer("Never on time, always timeout"), Clock::now()));
+      NetworkData(ReceivedUdpPacket(IOBuf::copyBuffer("fake data"))));
   EXPECT_TRUE(transport_->getAckTimeout()->isTimerCallbackScheduled());
   // We need to send some packets, otherwise loss timer won't be scheduled
   auto stream = transport_->createBidirectionalStream().value();
@@ -5154,6 +5149,457 @@ TEST_F(QuicTransportTest, GetMaxWritableBufferSpaceLimitedTwoStreams) {
   auto maxWritable2 = transport_->getMaxWritableOnStream(id1);
   EXPECT_FALSE(maxWritable2.hasError());
   EXPECT_EQ(*maxWritable2, transportSettings.totalBufferSpaceAvailable);
+}
+
+TEST_F(QuicTransportTest, UpdateSocketTosSettingsNoECN) {
+  // Pretend the socket is bound so the transport can attempt to set ToS.
+  EXPECT_CALL(*socket_, isBound).WillRepeatedly(Return(true));
+
+  EXPECT_CALL(*socket_, setRecvTos).Times(0);
+  EXPECT_CALL(*socket_, setTosOrTrafficClass(_)).Times(0);
+
+  TransportSettings transportSettings;
+  transportSettings.readEcnOnIngress = false;
+  transportSettings.enableEcnOnEgress = false;
+  transport_->setTransportSettings(transportSettings);
+
+  auto& conn = transport_->getConnectionState();
+  EXPECT_EQ(conn.socketTos.fields.ecn, 0);
+  EXPECT_EQ(conn.ecnState, ECNState::NotAttempted);
+}
+
+TEST_F(QuicTransportTest, UpdateSocketTosSettingsClassicECN) {
+  // Pretend the socket is bound so the transport can attempt to set ToS.
+  EXPECT_CALL(*socket_, isBound).WillRepeatedly(Return(true));
+
+  EXPECT_CALL(*socket_, setRecvTos).Times(0);
+  EXPECT_CALL(*socket_, setTosOrTrafficClass(kEcnECT0)).Times(1);
+
+  TransportSettings transportSettings;
+  transportSettings.readEcnOnIngress = false;
+  transportSettings.enableEcnOnEgress = true;
+  transportSettings.useL4sEcn = false;
+  transport_->setTransportSettings(transportSettings);
+
+  auto& conn = transport_->getConnectionState();
+  EXPECT_EQ(conn.socketTos.fields.ecn, kEcnECT0);
+  EXPECT_EQ(conn.ecnState, ECNState::AttemptingECN);
+}
+
+TEST_F(QuicTransportTest, UpdateSocketTosSettingsL4SECN) {
+  // Pretend the socket is bound so the transport can attempt to set ToS.
+  EXPECT_CALL(*socket_, isBound).WillRepeatedly(Return(true));
+
+  EXPECT_CALL(*socket_, setRecvTos).Times(0);
+  EXPECT_CALL(*socket_, setTosOrTrafficClass(kEcnECT1)).Times(1);
+
+  TransportSettings transportSettings;
+  transportSettings.readEcnOnIngress = false;
+  transportSettings.enableEcnOnEgress = true;
+  transportSettings.useL4sEcn = true;
+  transport_->setTransportSettings(transportSettings);
+
+  auto& conn = transport_->getConnectionState();
+  EXPECT_EQ(conn.socketTos.fields.ecn, kEcnECT1);
+  EXPECT_EQ(conn.ecnState, ECNState::AttemptingL4S);
+
+  // Setting the same transport settings should not trigger any calls to the
+  // socket
+  EXPECT_CALL(*socket_, setTosOrTrafficClass(_)).Times(0);
+  transport_->setTransportSettings(transportSettings);
+
+  // Disabling ECN should trigger a call to update the socket's tos.
+  EXPECT_CALL(*socket_, setTosOrTrafficClass(0)).Times(1);
+  transportSettings.enableEcnOnEgress = false;
+  transport_->setTransportSettings(transportSettings);
+  EXPECT_EQ(conn.ecnState, ECNState::NotAttempted);
+}
+
+TEST_F(QuicTransportTest, UpdateSocketTosSettingsDoNotSetTosOnUnboundSocket) {
+  // Pretend the socket is not bound so the transport does not attempt to set
+  // ToS.
+  EXPECT_CALL(*socket_, isBound).WillRepeatedly(Return(false));
+
+  EXPECT_CALL(*socket_, setRecvTos).Times(0);
+  EXPECT_CALL(*socket_, setTosOrTrafficClass(0)).Times(0);
+
+  TransportSettings transportSettings;
+  transportSettings.readEcnOnIngress = false;
+  transportSettings.enableEcnOnEgress = true;
+  transportSettings.useL4sEcn = false;
+  transport_->setTransportSettings(transportSettings);
+
+  // The socket tos should still have been updated
+  auto& conn = transport_->getConnectionState();
+  EXPECT_EQ(conn.socketTos.fields.ecn, kEcnECT0);
+}
+
+TEST_F(QuicTransportTest, ValidateECNValidationNotNeeded) {
+  // All the tests here should not change anything about the socket state.
+  EXPECT_CALL(*socket_, setRecvTos).Times(0);
+  EXPECT_CALL(*socket_, setTosOrTrafficClass(0)).Times(0);
+
+  auto& conn = transport_->getConnectionState();
+
+  // This is the default.
+  ASSERT_EQ(conn.ecnState, ECNState::NotAttempted);
+  transport_->validateECN();
+  EXPECT_EQ(conn.ecnState, ECNState::NotAttempted);
+
+  // If validation already failed, nothing should happen either.
+  conn.ecnState = ECNState::FailedValidation;
+  transport_->validateECN();
+  EXPECT_EQ(conn.ecnState, ECNState::FailedValidation);
+}
+
+TEST_F(QuicTransportTest, ValidateECNSuccess) {
+  auto& conn = transport_->getConnectionState();
+
+  {
+    conn.ecnState = ECNState::AttemptingECN;
+    // Not enough packets to validate ECN
+    conn.lossState.totalPacketsSent = 20;
+    conn.ackStates.appDataAckState.minimumExpectedEcnMarksEchoed = 9;
+    conn.ackStates.appDataAckState.ecnECT0CountEchoed = 9;
+    conn.ackStates.appDataAckState.ecnECT1CountEchoed = 0;
+    conn.ackStates.appDataAckState.ecnCECountEchoed = 0;
+    transport_->validateECN();
+    EXPECT_EQ(conn.ecnState, ECNState::AttemptingECN);
+  }
+  // ==== From attempting to validated ===========
+  {
+    conn.ecnState = ECNState::AttemptingECN;
+    // Marked exactly equal expected.
+    // Expected 10. 9 ECT0 + 1 CE
+    conn.lossState.totalPacketsSent = 20;
+    conn.ackStates.appDataAckState.minimumExpectedEcnMarksEchoed = 10;
+    conn.ackStates.appDataAckState.ecnECT0CountEchoed = 9;
+    conn.ackStates.appDataAckState.ecnECT1CountEchoed = 0;
+    conn.ackStates.appDataAckState.ecnCECountEchoed = 1;
+    transport_->validateECN();
+    EXPECT_EQ(conn.ecnState, ECNState::ValidatedECN);
+  }
+
+  {
+    conn.ecnState = ECNState::AttemptingECN;
+    // Marked more than expected and less than total sent
+    // Expected 10. 15 ECT0 + 4 CE
+    conn.lossState.totalPacketsSent = 20;
+    conn.ackStates.appDataAckState.minimumExpectedEcnMarksEchoed = 10;
+    conn.ackStates.appDataAckState.ecnECT0CountEchoed = 15;
+    conn.ackStates.appDataAckState.ecnECT1CountEchoed = 0;
+    conn.ackStates.appDataAckState.ecnCECountEchoed = 4;
+    transport_->validateECN();
+    EXPECT_EQ(conn.ecnState, ECNState::ValidatedECN);
+  }
+
+  // ==== Already validated ===========
+
+  {
+    conn.ecnState = ECNState::ValidatedECN;
+    // Marked exactly equal expected.
+    // Expected 10. 9 ECT0 + 1 CE
+    conn.lossState.totalPacketsSent = 20;
+    conn.ackStates.appDataAckState.minimumExpectedEcnMarksEchoed = 10;
+    conn.ackStates.appDataAckState.ecnECT0CountEchoed = 9;
+    conn.ackStates.appDataAckState.ecnECT1CountEchoed = 0;
+    conn.ackStates.appDataAckState.ecnCECountEchoed = 1;
+    transport_->validateECN();
+    EXPECT_EQ(conn.ecnState, ECNState::ValidatedECN);
+  }
+
+  {
+    conn.ecnState = ECNState::ValidatedECN;
+    // Marked more than expected and less than total sent
+    // Expected 10. 15 ECT0 + 4 CE
+    conn.lossState.totalPacketsSent = 20;
+    conn.ackStates.appDataAckState.minimumExpectedEcnMarksEchoed = 10;
+    conn.ackStates.appDataAckState.ecnECT0CountEchoed = 15;
+    conn.ackStates.appDataAckState.ecnECT1CountEchoed = 0;
+    conn.ackStates.appDataAckState.ecnCECountEchoed = 4;
+    transport_->validateECN();
+    EXPECT_EQ(conn.ecnState, ECNState::ValidatedECN);
+  }
+}
+
+TEST_F(QuicTransportTest, ValidateECNFailure) {
+  auto& conn = transport_->getConnectionState();
+
+  // Pretend the socket is bound so the transport can attempt to set ToS.
+  EXPECT_CALL(*socket_, isBound).WillRepeatedly(Return(true));
+
+  // ==== From attempting to failed ===========
+  {
+    conn.ecnState = ECNState::AttemptingECN;
+    conn.socketTos.fields.ecn = kEcnECT0;
+    // Marked less than expected.
+    // Expected 10. 9 ECT0 + 0 CE
+    conn.lossState.totalPacketsSent = 20;
+    conn.ackStates.appDataAckState.minimumExpectedEcnMarksEchoed = 10;
+    conn.ackStates.appDataAckState.ecnECT0CountEchoed = 9;
+    conn.ackStates.appDataAckState.ecnECT1CountEchoed = 0;
+    conn.ackStates.appDataAckState.ecnCECountEchoed = 0;
+    EXPECT_CALL(*socket_, setTosOrTrafficClass(0)).Times(1);
+    transport_->validateECN();
+    EXPECT_EQ(conn.ecnState, ECNState::FailedValidation);
+    EXPECT_EQ(conn.socketTos.fields.ecn, 0);
+  }
+
+  {
+    conn.ecnState = ECNState::AttemptingECN;
+    conn.socketTos.fields.ecn = kEcnECT0;
+    // Marked more than total.
+    // Expected 10. 19 ECT0 + 2 CE
+    conn.lossState.totalPacketsSent = 20;
+    conn.ackStates.appDataAckState.minimumExpectedEcnMarksEchoed = 10;
+    conn.ackStates.appDataAckState.ecnECT0CountEchoed = 19;
+    conn.ackStates.appDataAckState.ecnECT1CountEchoed = 0;
+    conn.ackStates.appDataAckState.ecnCECountEchoed = 2;
+    EXPECT_CALL(*socket_, setTosOrTrafficClass(0)).Times(1);
+    transport_->validateECN();
+    EXPECT_EQ(conn.ecnState, ECNState::FailedValidation);
+    EXPECT_EQ(conn.socketTos.fields.ecn, 0);
+  }
+
+  {
+    conn.ecnState = ECNState::AttemptingECN;
+    conn.socketTos.fields.ecn = kEcnECT0;
+    // Wrong ECT marking received
+    // Expected 10. 1 ECT1
+    conn.lossState.totalPacketsSent = 20;
+    conn.ackStates.appDataAckState.minimumExpectedEcnMarksEchoed = 10;
+    conn.ackStates.appDataAckState.ecnECT0CountEchoed = 0;
+    conn.ackStates.appDataAckState.ecnECT1CountEchoed = 1;
+    conn.ackStates.appDataAckState.ecnCECountEchoed = 0;
+    EXPECT_CALL(*socket_, setTosOrTrafficClass(0)).Times(1);
+    transport_->validateECN();
+    EXPECT_EQ(conn.ecnState, ECNState::FailedValidation);
+    EXPECT_EQ(conn.socketTos.fields.ecn, 0);
+  }
+
+  // ==== From valdiated to failed ===========
+  {
+    conn.ecnState = ECNState::ValidatedECN;
+    conn.socketTos.fields.ecn = kEcnECT0;
+    // Marked less than expected.
+    // Expected 10. 9 ECT0 + 0 CE
+    conn.lossState.totalPacketsSent = 20;
+    conn.ackStates.appDataAckState.minimumExpectedEcnMarksEchoed = 10;
+    conn.ackStates.appDataAckState.ecnECT0CountEchoed = 9;
+    conn.ackStates.appDataAckState.ecnECT1CountEchoed = 0;
+    conn.ackStates.appDataAckState.ecnCECountEchoed = 0;
+    EXPECT_CALL(*socket_, setTosOrTrafficClass(0)).Times(1);
+    transport_->validateECN();
+    EXPECT_EQ(conn.ecnState, ECNState::FailedValidation);
+    EXPECT_EQ(conn.socketTos.fields.ecn, 0);
+  }
+
+  {
+    conn.ecnState = ECNState::ValidatedECN;
+    conn.socketTos.fields.ecn = kEcnECT0;
+    // Marked more than total.
+    // Expected 10. 19 ECT0 + 2 CE
+    conn.lossState.totalPacketsSent = 20;
+    conn.ackStates.appDataAckState.minimumExpectedEcnMarksEchoed = 10;
+    conn.ackStates.appDataAckState.ecnECT0CountEchoed = 19;
+    conn.ackStates.appDataAckState.ecnECT1CountEchoed = 0;
+    conn.ackStates.appDataAckState.ecnCECountEchoed = 2;
+    EXPECT_CALL(*socket_, setTosOrTrafficClass(0)).Times(1);
+    transport_->validateECN();
+    EXPECT_EQ(conn.ecnState, ECNState::FailedValidation);
+    EXPECT_EQ(conn.socketTos.fields.ecn, 0);
+  }
+
+  {
+    conn.ecnState = ECNState::ValidatedECN;
+    conn.socketTos.fields.ecn = kEcnECT0;
+    // Wrong ECT marking received
+    // Expected 10. 1 ECT1
+    conn.lossState.totalPacketsSent = 20;
+    conn.ackStates.appDataAckState.minimumExpectedEcnMarksEchoed = 10;
+    conn.ackStates.appDataAckState.ecnECT0CountEchoed = 0;
+    conn.ackStates.appDataAckState.ecnECT1CountEchoed = 1;
+    conn.ackStates.appDataAckState.ecnCECountEchoed = 0;
+    EXPECT_CALL(*socket_, setTosOrTrafficClass(0)).Times(1);
+    transport_->validateECN();
+    EXPECT_EQ(conn.ecnState, ECNState::FailedValidation);
+    EXPECT_EQ(conn.socketTos.fields.ecn, 0);
+  }
+}
+
+TEST_F(QuicTransportTest, ValidateL4SSuccess) {
+  auto& conn = transport_->getConnectionState();
+
+  {
+    conn.ecnState = ECNState::AttemptingL4S;
+    // Not enough packets to validate L4S
+    conn.lossState.totalPacketsSent = 20;
+    conn.ackStates.appDataAckState.minimumExpectedEcnMarksEchoed = 9;
+    conn.ackStates.appDataAckState.ecnECT0CountEchoed = 9;
+    conn.ackStates.appDataAckState.ecnECT1CountEchoed = 0;
+    conn.ackStates.appDataAckState.ecnCECountEchoed = 0;
+    transport_->validateECN();
+    EXPECT_EQ(conn.ecnState, ECNState::AttemptingL4S);
+  }
+  // ==== From attempting to validated ===========
+  {
+    conn.ecnState = ECNState::AttemptingL4S;
+    // Marked exactly equal expected.
+    // Expected 10. 9 ECT1 + 1 CE
+    conn.lossState.totalPacketsSent = 20;
+    conn.ackStates.appDataAckState.minimumExpectedEcnMarksEchoed = 10;
+    conn.ackStates.appDataAckState.ecnECT0CountEchoed = 0;
+    conn.ackStates.appDataAckState.ecnECT1CountEchoed = 9;
+    conn.ackStates.appDataAckState.ecnCECountEchoed = 1;
+    transport_->validateECN();
+    EXPECT_EQ(conn.ecnState, ECNState::ValidatedL4S);
+  }
+
+  {
+    conn.ecnState = ECNState::AttemptingL4S;
+    // Marked more than expected and less than total sent
+    // Expected 10. 15 ECT1 + 4 CE
+    conn.lossState.totalPacketsSent = 20;
+    conn.ackStates.appDataAckState.minimumExpectedEcnMarksEchoed = 10;
+    conn.ackStates.appDataAckState.ecnECT0CountEchoed = 0;
+    conn.ackStates.appDataAckState.ecnECT1CountEchoed = 15;
+    conn.ackStates.appDataAckState.ecnCECountEchoed = 4;
+    transport_->validateECN();
+    EXPECT_EQ(conn.ecnState, ECNState::ValidatedL4S);
+  }
+
+  // ==== Already validated ===========
+
+  {
+    conn.ecnState = ECNState::ValidatedL4S;
+    // Marked exactly equal expected.
+    // Expected 10. 9 ECT1 + 1 CE
+    conn.lossState.totalPacketsSent = 20;
+    conn.ackStates.appDataAckState.minimumExpectedEcnMarksEchoed = 10;
+    conn.ackStates.appDataAckState.ecnECT0CountEchoed = 0;
+    conn.ackStates.appDataAckState.ecnECT1CountEchoed = 9;
+    conn.ackStates.appDataAckState.ecnCECountEchoed = 1;
+    transport_->validateECN();
+    EXPECT_EQ(conn.ecnState, ECNState::ValidatedL4S);
+  }
+
+  {
+    conn.ecnState = ECNState::ValidatedL4S;
+    // Marked more than expected and less than total sent
+    // Expected 10. 15 ECT1 + 4 CE
+    conn.lossState.totalPacketsSent = 20;
+    conn.ackStates.appDataAckState.minimumExpectedEcnMarksEchoed = 10;
+    conn.ackStates.appDataAckState.ecnECT0CountEchoed = 0;
+    conn.ackStates.appDataAckState.ecnECT1CountEchoed = 15;
+    conn.ackStates.appDataAckState.ecnCECountEchoed = 4;
+    transport_->validateECN();
+    EXPECT_EQ(conn.ecnState, ECNState::ValidatedL4S);
+  }
+}
+
+TEST_F(QuicTransportTest, ValidateL4SFailure) {
+  auto& conn = transport_->getConnectionState();
+
+  // Pretend the socket is bound so the transport can attempt to set ToS.
+  EXPECT_CALL(*socket_, isBound).WillRepeatedly(Return(true));
+
+  // ==== From attempting to failed ===========
+  {
+    conn.ecnState = ECNState::AttemptingL4S;
+    conn.socketTos.fields.ecn = kEcnECT1;
+    // Marked less than expected.
+    // Expected 10. 9 ECT1 + 0 CE
+    conn.lossState.totalPacketsSent = 20;
+    conn.ackStates.appDataAckState.minimumExpectedEcnMarksEchoed = 10;
+    conn.ackStates.appDataAckState.ecnECT0CountEchoed = 0;
+    conn.ackStates.appDataAckState.ecnECT1CountEchoed = 9;
+    conn.ackStates.appDataAckState.ecnCECountEchoed = 0;
+    EXPECT_CALL(*socket_, setTosOrTrafficClass(0)).Times(1);
+    transport_->validateECN();
+    EXPECT_EQ(conn.ecnState, ECNState::FailedValidation);
+    EXPECT_EQ(conn.socketTos.fields.ecn, 0);
+  }
+
+  {
+    conn.ecnState = ECNState::AttemptingL4S;
+    conn.socketTos.fields.ecn = kEcnECT1;
+    // Marked more than total.
+    // Expected 10. 19 ECT1 + 2 CE
+    conn.lossState.totalPacketsSent = 20;
+    conn.ackStates.appDataAckState.minimumExpectedEcnMarksEchoed = 10;
+    conn.ackStates.appDataAckState.ecnECT0CountEchoed = 0;
+    conn.ackStates.appDataAckState.ecnECT1CountEchoed = 19;
+    conn.ackStates.appDataAckState.ecnCECountEchoed = 2;
+    EXPECT_CALL(*socket_, setTosOrTrafficClass(0)).Times(1);
+    transport_->validateECN();
+    EXPECT_EQ(conn.ecnState, ECNState::FailedValidation);
+    EXPECT_EQ(conn.socketTos.fields.ecn, 0);
+  }
+
+  {
+    conn.ecnState = ECNState::AttemptingL4S;
+    conn.socketTos.fields.ecn = kEcnECT1;
+    // Wrong ECT marking received
+    // Expected 10. 1 ECT0
+    conn.lossState.totalPacketsSent = 20;
+    conn.ackStates.appDataAckState.minimumExpectedEcnMarksEchoed = 10;
+    conn.ackStates.appDataAckState.ecnECT0CountEchoed = 1;
+    conn.ackStates.appDataAckState.ecnECT1CountEchoed = 0;
+    conn.ackStates.appDataAckState.ecnCECountEchoed = 0;
+    EXPECT_CALL(*socket_, setTosOrTrafficClass(0)).Times(1);
+    transport_->validateECN();
+    EXPECT_EQ(conn.ecnState, ECNState::FailedValidation);
+    EXPECT_EQ(conn.socketTos.fields.ecn, 0);
+  }
+
+  // ==== From valdiated to failed ===========
+  {
+    conn.ecnState = ECNState::ValidatedL4S;
+    conn.socketTos.fields.ecn = kEcnECT1;
+    // Marked less than expected.
+    // Expected 10. 9 ECT1 + 0 CE
+    conn.lossState.totalPacketsSent = 20;
+    conn.ackStates.appDataAckState.minimumExpectedEcnMarksEchoed = 10;
+    conn.ackStates.appDataAckState.ecnECT0CountEchoed = 9;
+    conn.ackStates.appDataAckState.ecnECT1CountEchoed = 0;
+    conn.ackStates.appDataAckState.ecnCECountEchoed = 0;
+    EXPECT_CALL(*socket_, setTosOrTrafficClass(0)).Times(1);
+    transport_->validateECN();
+    EXPECT_EQ(conn.ecnState, ECNState::FailedValidation);
+    EXPECT_EQ(conn.socketTos.fields.ecn, 0);
+  }
+
+  {
+    conn.ecnState = ECNState::ValidatedL4S;
+    conn.socketTos.fields.ecn = kEcnECT1;
+    // Marked more than total.
+    // Expected 10. 19 ECT1 + 2 CE
+    conn.lossState.totalPacketsSent = 20;
+    conn.ackStates.appDataAckState.minimumExpectedEcnMarksEchoed = 10;
+    conn.ackStates.appDataAckState.ecnECT0CountEchoed = 0;
+    conn.ackStates.appDataAckState.ecnECT1CountEchoed = 19;
+    conn.ackStates.appDataAckState.ecnCECountEchoed = 2;
+    EXPECT_CALL(*socket_, setTosOrTrafficClass(0)).Times(1);
+    transport_->validateECN();
+    EXPECT_EQ(conn.ecnState, ECNState::FailedValidation);
+    EXPECT_EQ(conn.socketTos.fields.ecn, 0);
+  }
+
+  {
+    conn.ecnState = ECNState::ValidatedL4S;
+    conn.socketTos.fields.ecn = kEcnECT0;
+    // Wrong ECT marking received
+    // Expected 10. 1 ECT0
+    conn.lossState.totalPacketsSent = 20;
+    conn.ackStates.appDataAckState.minimumExpectedEcnMarksEchoed = 10;
+    conn.ackStates.appDataAckState.ecnECT0CountEchoed = 1;
+    conn.ackStates.appDataAckState.ecnECT1CountEchoed = 0;
+    conn.ackStates.appDataAckState.ecnCECountEchoed = 0;
+    EXPECT_CALL(*socket_, setTosOrTrafficClass(0)).Times(1);
+    transport_->validateECN();
+    EXPECT_EQ(conn.ecnState, ECNState::FailedValidation);
+    EXPECT_EQ(conn.socketTos.fields.ecn, 0);
+  }
 }
 
 } // namespace test

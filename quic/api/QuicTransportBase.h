@@ -10,6 +10,7 @@
 #include <quic/QuicConstants.h>
 #include <quic/QuicException.h>
 #include <quic/api/QuicSocket.h>
+#include <quic/api/QuicTransportFunctions.h>
 #include <quic/common/FunctionLooper.h>
 #include <quic/common/NetworkData.h>
 #include <quic/common/events/QuicEventBase.h>
@@ -711,6 +712,7 @@ class QuicTransportBase : public QuicSocket, QuicStreamPrioritiesObserver {
  protected:
   void updateCongestionControlSettings(
       const TransportSettings& transportSettings);
+  void updateSocketTosSettings();
   void processCallbacksAfterWriteData();
   void processCallbacksAfterNetworkData();
   void invokeReadDataAndCallbacks();
@@ -1003,6 +1005,27 @@ class QuicTransportBase : public QuicSocket, QuicStreamPrioritiesObserver {
   void cancelTimeout(QuicTimerCallback* callback);
 
   bool isTimeoutScheduled(QuicTimerCallback* callback) const;
+
+  /**
+   * Helper function to validate that the number of ECN packet marks match the
+   * expected value, depending on the ECN state of the connection.
+   *
+   * If ECN is enabled, this function validates it's working correctly. If ECN
+   * is not enabled or has already failed validation, this function does
+   * nothing.
+   */
+  void validateECNState();
+
+  WriteQuicDataResult handleInitialWriteDataCommon(
+      const ConnectionId& srcConnId,
+      const ConnectionId& dstConnId,
+      uint64_t packetLimit,
+      const std::string& token = "");
+
+  WriteQuicDataResult handleHandshakeWriteDataCommon(
+      const ConnectionId& srcConnId,
+      const ConnectionId& dstConnId,
+      uint64_t packetLimit);
 
  private:
   /**

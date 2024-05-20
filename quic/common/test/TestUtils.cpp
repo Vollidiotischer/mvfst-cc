@@ -7,8 +7,8 @@
 
 #include <quic/common/test/TestUtils.h>
 
+#include <fizz/backend/openssl/certificate/OpenSSLSelfCertImpl.h>
 #include <fizz/crypto/test/TestUtil.h>
-#include <fizz/protocol/OpenSSLSelfCertImpl.h>
 #include <fizz/protocol/clock/test/Mocks.h>
 #include <fizz/protocol/test/Mocks.h>
 #include <quic/api/QuicTransportFunctions.h>
@@ -116,7 +116,8 @@ static std::shared_ptr<fizz::SelfCert> readCert() {
   auto privKey = fizz::test::getPrivateKey(fizz::test::kP256Key);
   std::vector<folly::ssl::X509UniquePtr> certs;
   certs.emplace_back(std::move(certificate));
-  return std::make_shared<fizz::OpenSSLSelfCertImpl<fizz::KeyType::P256>>(
+  return std::make_shared<
+      fizz::openssl::OpenSSLSelfCertImpl<fizz::openssl::KeyType::P256>>(
       std::move(privKey), std::move(certs));
 }
 
@@ -398,6 +399,12 @@ Buf packetToBuf(const RegularQuicPacketBuilder::Packet& packet) {
   return packetBuf;
 }
 
+ReceivedUdpPacket packetToReceivedUdpPacket(
+    const RegularQuicPacketBuilder::Packet& writePacket) {
+  ReceivedUdpPacket packet(packetToBuf(writePacket));
+  return packet;
+}
+
 Buf packetToBufCleartext(
     RegularQuicPacketBuilder::Packet& packet,
     const Aead& cleartextCipher,
@@ -496,10 +503,10 @@ void updateAckState(
     bool pkHasRetransmittableData,
     bool pkHasCryptoData,
     TimePoint receiveTimePoint) {
-  ReceivedUdpPacket::Timings packetTimings;
-  packetTimings.receiveTimePoint = receiveTimePoint;
-  uint64_t distance = addPacketToAckState(
-      conn, getAckState(conn, pnSpace), packetNum, packetTimings);
+  ReceivedUdpPacket packet;
+  packet.timings.receiveTimePoint = receiveTimePoint;
+  uint64_t distance =
+      addPacketToAckState(conn, getAckState(conn, pnSpace), packetNum, packet);
   updateAckSendStateOnRecvPacket(
       conn,
       getAckState(conn, pnSpace),

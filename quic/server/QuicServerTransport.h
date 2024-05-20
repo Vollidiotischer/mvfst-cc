@@ -185,6 +185,8 @@ class QuicServerTransport
   folly::Optional<std::vector<TransportParameter>> getPeerTransportParams()
       const override;
 
+  void setCongestionControl(CongestionControlType type) override;
+
  protected:
   // From QuicSocket
   SocketObserverContainer* getSocketObserverContainer() const override {
@@ -218,6 +220,7 @@ class QuicServerTransport
   };
 
   void processPendingData(bool async);
+  void maybeUpdateCongestionControllerFromTicket();
   void maybeNotifyTransportReady();
   void maybeNotifyConnectionIdRetired();
   void maybeNotifyConnectionIdBound();

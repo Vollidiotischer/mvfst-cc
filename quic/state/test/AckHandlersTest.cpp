@@ -255,6 +255,60 @@ TEST_P(AckHandlersTest, TestAckMultipleSequentialBlocks) {
   EXPECT_EQ(conn.outstandings.packets.size(), numDeclaredLost + 5);
 }
 
+TEST_P(AckHandlersTest, TestAckWithECN) {
+  QuicServerConnectionState conn(
+      FizzServerQuicHandshakeContext::Builder().build());
+
+  auto packetSendTime = Clock::now();
+  auto packet = createNewPacket(5, GetParam().pnSpace);
+  conn.outstandings.packetCount[packet.header.getPacketNumberSpace()]++;
+  conn.outstandings.packets.emplace_back(
+      std::move(packet),
+      packetSendTime,
+      0,
+      0,
+      false,
+      0,
+      0,
+      LossState(),
+      0,
+      OutstandingPacketMetadata::DetailsPerStream());
+  conn.outstandings.packets.back().nonDsrPacketSequenceNumber =
+      getAckState(conn, GetParam().pnSpace).nonDsrPacketSequenceNumber++;
+
+  // To enable accounting of sent marked packets
+  conn.ecnState = ECNState::ValidatedL4S;
+
+  ReadAckFrame ackFrame;
+  auto ackReceiveTime = packetSendTime + 1ms;
+  ackFrame.largestAcked = 5;
+  ackFrame.ackBlocks.emplace_back(5, 5);
+  ackFrame.ecnECT0Count = 100;
+  ackFrame.ecnECT1Count = 200;
+  ackFrame.ecnCECount = 300;
+
+  auto ackEvent = processAckFrame(
+      conn,
+      GetParam().pnSpace,
+      ackFrame,
+      [](auto&) {},
+      [](const auto&, const auto&) {},
+      [](auto&, auto&, bool) {},
+      ackReceiveTime);
+
+  EXPECT_EQ(ackEvent.ecnECT0Count, 100);
+  EXPECT_EQ(ackEvent.ecnECT1Count, 200);
+  EXPECT_EQ(ackEvent.ecnCECount, 300);
+
+  if (GetParam().pnSpace == PacketNumberSpace::AppData) {
+    auto& ackState = getAckState(conn, GetParam().pnSpace);
+    EXPECT_EQ(ackState.minimumExpectedEcnMarksEchoed, 1);
+    EXPECT_EQ(ackState.ecnECT0CountEchoed, 100);
+    EXPECT_EQ(ackState.ecnECT1CountEchoed, 200);
+    EXPECT_EQ(ackState.ecnCECountEchoed, 300);
+  }
+}
+
 TEST_P(AckHandlersTest, TestSpuriousLossFullRemoval) {
   QuicServerConnectionState conn(
       FizzServerQuicHandshakeContext::Builder().build());
@@ -1036,8 +1090,8 @@ TEST_P(AckHandlersTest, TestAckMultipleSequentialBlocksLoss) {
       conn.outstandings.packets.begin(),
       conn.outstandings.packets.end(),
       [](auto& op) {
-        return op.packet.header.getPacketSequenceNum() == 15 ||
-            op.packet.header.getPacketSequenceNum() == 16;
+        auto seqno = op.packet.header.getPacketSequenceNum();
+        return seqno == 15 || seqno == 16;
       });
   EXPECT_TRUE(itr != conn.outstandings.packets.end());
   EXPECT_TRUE(itr->declaredLost);
@@ -1060,8 +1114,8 @@ TEST_P(AckHandlersTest, TestAckMultipleSequentialBlocksLoss) {
       conn.outstandings.packets.begin(),
       conn.outstandings.packets.end(),
       [](auto& op) {
-        return op.packet.header.getPacketSequenceNum() == 15 ||
-            op.packet.header.getPacketSequenceNum() == 16;
+        auto seqno = op.packet.header.getPacketSequenceNum();
+        return seqno == 15 || seqno == 16;
       });
   EXPECT_TRUE(itr == conn.outstandings.packets.end());
 

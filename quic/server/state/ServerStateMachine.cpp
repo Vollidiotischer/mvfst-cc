@@ -93,8 +93,8 @@ void recoverOrResetCongestionAndRttState(
 void maybeSetExperimentalSettings(QuicServerConnectionState& conn) {
   // no-op versions
   if (conn.version == QuicVersion::MVFST_EXPERIMENTAL) {
-    // MVFST_EXPERIMENTAL is used to set initCwnd
-    // QuicServerWorker.cpp before CC is initialized.
+    // MVFST_EXPERIMENTAL is used to jumpstart the cwnd for clients based on a
+    // cwndHint from a previous connection in QuicServerTransport.cpp
   } else if (conn.version == QuicVersion::MVFST_EXPERIMENTAL2) {
   } else if (conn.version == QuicVersion::MVFST_EXPERIMENTAL3) {
     // MVFST_EXPERIMENTAL3 is used to apply a 2x pace scaling for BBRv2
@@ -235,7 +235,8 @@ void processClientInitialParams(
       TransportParameterId::receive_timestamps_exponent,
       clientParams.parameters);
   if (conn.version == QuicVersion::QUIC_V1 ||
-      conn.version == QuicVersion::QUIC_V1_ALIAS) {
+      conn.version == QuicVersion::QUIC_V1_ALIAS ||
+      conn.version == QuicVersion::QUIC_V1_ALIAS2) {
     auto initialSourceConnId = getConnIdParameter(
         TransportParameterId::initial_source_connection_id,
         clientParams.parameters);
@@ -707,7 +708,9 @@ static void handleCipherUnavailable(
     ServerEvents::ReadData pendingReadData;
     pendingReadData.peer = readData.peer;
     pendingReadData.udpPacket = ReceivedUdpPacket(
-        std::move(originalData->packet), readData.udpPacket.timings);
+        std::move(originalData->packet),
+        readData.udpPacket.timings,
+        readData.udpPacket.tosValue);
     pendingData->emplace_back(std::move(pendingReadData));
     VLOG(10) << "Adding pending data to "
              << toString(originalData->protectionType)
@@ -731,15 +734,14 @@ void onServerReadDataFromOpen(
     ServerEvents::ReadData& readData) {
   CHECK_EQ(conn.state, ServerState::Open);
   // Don't bother parsing if the data is empty.
-  if (!readData.udpPacket.buf ||
-      readData.udpPacket.buf->computeChainDataLength() == 0) {
+  if (readData.udpPacket.buf.empty()) {
     return;
   }
   bool firstPacketFromPeer = false;
   if (!conn.readCodec) {
     firstPacketFromPeer = true;
 
-    folly::io::Cursor cursor(readData.udpPacket.buf.get());
+    folly::io::Cursor cursor(readData.udpPacket.buf.front());
     auto initialByte = cursor.readBE<uint8_t>();
     auto parsedLongHeader = parseLongHeaderInvariant(initialByte, cursor);
     if (!parsedLongHeader) {
@@ -848,8 +850,7 @@ void onServerReadDataFromOpen(
         initialDestinationConnectionId, version);
     conn.peerAddress = conn.originalPeerAddress;
   }
-  BufQueue udpData;
-  udpData.append(std::move(readData.udpPacket.buf));
+  BufQueue& udpData = readData.udpPacket.buf;
   uint64_t processedPacketsTotal = 0;
   for (uint16_t processedPackets = 0;
        !udpData.empty() && processedPackets < kMaxNumCoalescedPackets;
@@ -1015,8 +1016,8 @@ void onServerReadDataFromOpen(
     }
 
     auto& ackState = getAckState(conn, packetNumberSpace);
-    uint64_t distanceFromExpectedPacketNum = addPacketToAckState(
-        conn, ackState, packetNum, readData.udpPacket.timings);
+    uint64_t distanceFromExpectedPacketNum =
+        addPacketToAckState(conn, ackState, packetNum, readData.udpPacket);
     if (distanceFromExpectedPacketNum > 0) {
       QUIC_STATS(conn.statsCallback, onOutOfOrderPacketReceived);
     }
@@ -1385,8 +1386,7 @@ void onServerReadDataFromClosed(
     QuicServerConnectionState& conn,
     ServerEvents::ReadData& readData) {
   CHECK_EQ(conn.state, ServerState::Closed);
-  BufQueue udpData;
-  udpData.append(std::move(readData.udpPacket.buf));
+  BufQueue& udpData = readData.udpPacket.buf;
   auto packetSize = udpData.empty() ? 0 : udpData.chainLength();
   if (!conn.readCodec) {
     // drop data. We closed before we even got the first packet. This is

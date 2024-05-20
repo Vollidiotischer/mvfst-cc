@@ -29,11 +29,11 @@ QuicAsyncUDPSocket::RecvResult QuicAsyncUDPSocketImpl::recvmmsgNetworkData(
   int flags = 0;
 #ifdef FOLLY_HAVE_MSG_ERRQUEUE
   bool useGRO = getGRO() > 0;
-  bool useTS = getTimestamping() > 0;
+  bool checkCmsgs = useGRO || getTimestamping() > 0 || getRecvTos();
   std::vector<std::array<
       char,
       QuicAsyncUDPSocket::ReadCallback::OnDataAvailableParams::kCmsgSpace>>
-      controlVec((useGRO | useTS) ? numPackets : 0);
+      controlVec(checkCmsgs ? numPackets : 0);
 
   // we need to consider MSG_TRUNC too
   if (useGRO) {
@@ -60,7 +60,7 @@ QuicAsyncUDPSocket::RecvResult QuicAsyncUDPSocketImpl::recvmmsgNetworkData(
     msg->msg_name = rawAddr;
     msg->msg_namelen = kAddrLen;
 #ifdef FOLLY_HAVE_MSG_ERRQUEUE
-    if (useGRO || useTS) {
+    if (checkCmsgs) {
       ::memset(controlVec[i].data(), 0, controlVec[i].size());
       msg->msg_control = controlVec[i].data();
       msg->msg_controllen = controlVec[i].size();
@@ -96,7 +96,7 @@ QuicAsyncUDPSocket::RecvResult QuicAsyncUDPSocketImpl::recvmmsgNetworkData(
     }
     QuicAsyncUDPSocket::ReadCallback::OnDataAvailableParams params;
 #ifdef FOLLY_HAVE_MSG_ERRQUEUE
-    if (useGRO || useTS) {
+    if (checkCmsgs) {
       QuicAsyncUDPSocket::fromMsg(params, msg.msg_hdr);
 
       // truncated
@@ -167,7 +167,8 @@ QuicAsyncUDPSocket::RecvResult QuicAsyncUDPSocketImpl::recvmmsgNetworkData(
 
           offset += params.gro;
           remaining -= params.gro;
-          networkData.addPacket(ReceivedUdpPacket(std::move(tmp), timings));
+          networkData.addPacket(
+              ReceivedUdpPacket(std::move(tmp), timings, params.tos));
         } else {
           // do not clone the last packet
           // start at offset, use all the remaining data
@@ -175,11 +176,12 @@ QuicAsyncUDPSocket::RecvResult QuicAsyncUDPSocketImpl::recvmmsgNetworkData(
           DCHECK_EQ(readBuffer->length(), remaining);
           remaining = 0;
           networkData.addPacket(
-              ReceivedUdpPacket(std::move(readBuffer), timings));
+              ReceivedUdpPacket(std::move(readBuffer), timings, params.tos));
         }
       }
     } else {
-      networkData.addPacket(ReceivedUdpPacket(std::move(readBuffer), timings));
+      networkData.addPacket(
+          ReceivedUdpPacket(std::move(readBuffer), timings, params.tos));
     }
   }
 

@@ -122,6 +122,8 @@ AckEvent processAckFrame(
     const TimePoint& ackReceiveTime) {
   const auto nowTime = Clock::now();
 
+  updateEcnCountEchoed(conn, pnSpace, frame);
+
   // TODO: send error if we get an ack for a packet we've not sent t18721184
   auto ack = AckEvent::Builder()
                  .setAckTime(ackReceiveTime)
@@ -130,6 +132,8 @@ AckEvent processAckFrame(
                  .setPacketNumberSpace(pnSpace)
                  .setLargestAckedPacket(frame.largestAcked)
                  .setIsImplicitAck(frame.implicit)
+                 .setEcnCounts(
+                     frame.ecnECT0Count, frame.ecnECT1Count, frame.ecnCECount)
                  .build();
 
   // temporary storage to enable packets to be processed in sent order
@@ -392,6 +396,9 @@ AckEvent processAckFrame(
 
     // run the ACKed packet visitor
     ackedPacketVisitor(*outstandingPacket);
+
+    // Update ecn counts
+    incrementEcnCountForAckedPacket(conn, pnSpace);
 
     const auto processAllFrames = packetWithHandlerContextItr->processAllFrames;
     AckEvent::AckPacket::DetailsPerStream detailsPerStream;
@@ -749,5 +756,31 @@ void commonAckVisitorForAckFrame(
       ackState.acks.withdraw({0, largestAcked - kAckPurgingThresh});
     }
   }
+}
+
+void incrementEcnCountForAckedPacket(
+    QuicConnectionStateBase& conn,
+    PacketNumberSpace pnSpace) {
+  if (conn.ecnState == ECNState::NotAttempted ||
+      conn.ecnState == ECNState::FailedValidation) {
+    // Nothing to update.
+    return;
+  }
+  auto& ackState = getAckState(conn, pnSpace);
+  ackState.minimumExpectedEcnMarksEchoed++;
+}
+
+void updateEcnCountEchoed(
+    QuicConnectionStateBase& conn,
+    PacketNumberSpace pnSpace,
+    const ReadAckFrame& readAckFrame) {
+  // Track the reflected ECN markings in the current pn space
+  auto& ackState = getAckState(conn, pnSpace);
+  ackState.ecnECT0CountEchoed =
+      std::max(ackState.ecnECT0CountEchoed, readAckFrame.ecnECT0Count);
+  ackState.ecnECT1CountEchoed =
+      std::max(ackState.ecnECT1CountEchoed, readAckFrame.ecnECT1Count);
+  ackState.ecnCECountEchoed =
+      std::max(ackState.ecnCECountEchoed, readAckFrame.ecnCECount);
 }
 } // namespace quic

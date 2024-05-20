@@ -273,10 +273,10 @@ class TestQuicTransport
 
   void onReadData(const folly::SocketAddress&, ReceivedUdpPacket&& udpPacket)
       override {
-    if (!udpPacket.buf) {
+    if (udpPacket.buf.empty()) {
       return;
     }
-    folly::io::Cursor cursor(udpPacket.buf.get());
+    folly::io::Cursor cursor(udpPacket.buf.front());
     while (!cursor.isAtEnd()) {
       // create server chosen connId with processId = 0 and workerId = 0
       ServerConnectionIdParams params(0, 0, 0);
@@ -404,19 +404,19 @@ class TestQuicTransport
       folly::Optional<StreamGroupId> groupId = folly::none) {
     auto buf = encodeStreamBuffer(id, std::move(data), std::move(groupId));
     SocketAddress addr("127.0.0.1", 1000);
-    onNetworkData(addr, NetworkData(std::move(buf), Clock::now()));
+    onNetworkData(addr, NetworkData(std::move(buf), Clock::now(), 0));
   }
 
   void addCryptoData(StreamBuffer data) {
     auto buf = encodeCryptoBuffer(std::move(data));
     SocketAddress addr("127.0.0.1", 1000);
-    onNetworkData(addr, NetworkData(std::move(buf), Clock::now()));
+    onNetworkData(addr, NetworkData(std::move(buf), Clock::now(), 0));
   }
 
   void addMaxStreamsFrame(MaxStreamsFrame frame) {
     auto buf = encodeMaxStreamsFrame(frame);
     SocketAddress addr("127.0.0.1", 1000);
-    onNetworkData(addr, NetworkData(std::move(buf), Clock::now()));
+    onNetworkData(addr, NetworkData(std::move(buf), Clock::now(), 0));
   }
 
   void addStreamReadError(StreamId id, QuicErrorCode ex) {
@@ -432,7 +432,7 @@ class TestQuicTransport
   void addDatagram(Buf data, TimePoint recvTime = Clock::now()) {
     auto buf = encodeDatagramFrame(std::move(data));
     SocketAddress addr("127.0.0.1", 1000);
-    onNetworkData(addr, NetworkData(std::move(buf), recvTime));
+    onNetworkData(addr, NetworkData(std::move(buf), recvTime, 0));
   }
 
   void closeStream(StreamId id) {
@@ -477,7 +477,7 @@ class TestQuicTransport
     auto buf = encodeStreamBuffer(
         id,
         StreamBuffer(IOBuf::create(0), stream->maxOffsetObserved + 1, true));
-    auto networkData = NetworkData(std::move(buf), Clock::now());
+    auto networkData = NetworkData(std::move(buf), Clock::now(), 0);
     onNetworkData(addr, std::move(networkData));
   }
 

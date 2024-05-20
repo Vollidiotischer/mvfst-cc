@@ -99,6 +99,9 @@ void QuicServerWorker::bind(
         address.getFamily(),
         folly::SocketOptionKey::ApplyPos::PRE_BIND);
   }
+  if (transportSettings_.readEcnOnIngress) {
+    socket_->setRecvTos(true);
+  }
   socket_->bind(address, bindOptions);
   if (socketOptions_) {
     applySocketOptions(
@@ -341,7 +344,10 @@ void QuicServerWorker::onDataAvailable(
     data->append(len);
     QUIC_STATS(statsCallback_, onPacketReceived);
     QUIC_STATS(statsCallback_, onRead, len);
-    handleNetworkData(client, std::move(data), packetReceiveTime);
+    ReceivedUdpPacket udpPacket(std::move(data));
+    udpPacket.timings.receiveTimePoint = packetReceiveTime;
+    udpPacket.tosValue = params.tos;
+    handleNetworkData(client, udpPacket);
   } else {
     // if we receive a truncated packet
     // we still need to consider the prev valid ones
@@ -350,7 +356,6 @@ void QuicServerWorker::onDataAvailable(
     if (truncated) {
       len -= len % params.gro;
     }
-
     data->append(len);
     QUIC_STATS(statsCallback_, onPacketReceived);
     QUIC_STATS(statsCallback_, onRead, len);
@@ -363,7 +368,10 @@ void QuicServerWorker::onDataAvailable(
         // start at offset, use all the remaining data
         data->trimStart(offset);
         DCHECK_EQ(data->length(), remaining);
-        handleNetworkData(client, std::move(data), packetReceiveTime);
+        ReceivedUdpPacket udpPacket(std::move(data));
+        udpPacket.timings.receiveTimePoint = packetReceiveTime;
+        udpPacket.tosValue = params.tos;
+        handleNetworkData(client, udpPacket);
         break;
       }
       auto tmp = data->cloneOne();
@@ -375,15 +383,17 @@ void QuicServerWorker::onDataAvailable(
       DCHECK_EQ(tmp->length(), params.gro);
       offset += params.gro;
       remaining -= params.gro;
-      handleNetworkData(client, std::move(tmp), packetReceiveTime);
+      ReceivedUdpPacket udpPacket(std::move(tmp));
+      udpPacket.timings.receiveTimePoint = packetReceiveTime;
+      udpPacket.tosValue = params.tos;
+      handleNetworkData(client, udpPacket);
     }
   }
 }
 
 void QuicServerWorker::handleNetworkData(
     const folly::SocketAddress& client,
-    Buf data,
-    const TimePoint& packetReceiveTime,
+    ReceivedUdpPacket& udpPacket,
     bool isForwardedData) noexcept {
   // if packet drop reason is set, invoke stats cb accordingly
   auto packetDropReason = PacketDropReason::NONE;
@@ -395,7 +405,7 @@ void QuicServerWorker::handleNetworkData(
 
   try {
     // check error conditions for packet drop & early return
-    folly::io::Cursor cursor(data.get());
+    folly::io::Cursor cursor(udpPacket.buf.front());
     if (shutdown_) {
       VLOG(4) << "Packet received after shutdown, dropping";
       packetDropReason = PacketDropReason::SERVER_SHUTDOWN;
@@ -430,7 +440,7 @@ void QuicServerWorker::handleNetworkData(
         return forwardNetworkData(
             client,
             std::move(routingData),
-            NetworkData(std::move(data), packetReceiveTime),
+            NetworkData(std::move(udpPacket)),
             folly::none, /* quicVersion */
             isForwardedData);
       }
@@ -449,7 +459,7 @@ void QuicServerWorker::handleNetworkData(
       }
 
       if (maybeSendVersionNegotiationPacketOrDrop(
-              client, isInitial, invariant, data->computeChainDataLength())) {
+              client, isInitial, invariant, udpPacket.buf.chainLength())) {
         return;
       }
 
@@ -470,12 +480,12 @@ void QuicServerWorker::handleNetworkData(
       return forwardNetworkData(
           client,
           std::move(routingData),
-          NetworkData(std::move(data), packetReceiveTime),
+          NetworkData(std::move(udpPacket)),
           invariant.version,
           isForwardedData);
     }
 
-    if (!tryHandlingAsHealthCheck(client, *data)) {
+    if (!tryHandlingAsHealthCheck(client, *udpPacket.buf.front())) {
       VLOG(6) << "Failed to parse long header";
       packetDropReason = PacketDropReason::PARSE_ERROR_LONG_HEADER;
     }
@@ -650,9 +660,6 @@ QuicServerTransport::Ptr QuicServerWorker::makeTransport(
     }
     trans->setCongestionControllerFactory(ccFactory_);
     trans->setTransportStatsCallback(statsCallback_.get()); // ok if nullptr
-    if (quicVersion == QuicVersion::MVFST_EXPERIMENTAL) {
-      transportSettings_.initCwndInMss = 30;
-    }
     if (quicVersion == QuicVersion::MVFST_EXPERIMENTAL3) {
       // Use twice the default pacing gain to make BBRv2's startup behavior
       // similar to BBRv1's.
@@ -671,7 +678,7 @@ QuicServerTransport::Ptr QuicServerWorker::makeTransport(
         << (transportSettings.dataPathType == DataPathType::ContinuousMemory
                 ? "ContinuousMemory"
                 : "ChainedMemory");
-    if (quicVersion == QuicVersion::MVFST_EXPERIMENTAL2) {
+    if (quicVersion == QuicVersion::MVFST_EXPERIMENTAL) {
       transportSettings.includeCwndHintsInSessionTicket = true;
       transportSettings.useCwndHintsInSessionTicket = true;
     }
@@ -897,7 +904,7 @@ void QuicServerWorker::dispatchPacketData(
 
   // If there is a token present, decrypt it (could be either a retry
   // token or a new token)
-  folly::io::Cursor cursor(networkData.getPackets().front().buf.get());
+  folly::io::Cursor cursor(networkData.getPackets().front().buf.front());
   auto maybeEncryptedToken = maybeGetEncryptedToken(cursor);
   bool hasTokenSecret = transportSettings_.retryTokenSecret.hasValue();
 

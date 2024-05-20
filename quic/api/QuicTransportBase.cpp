@@ -1876,7 +1876,8 @@ void QuicTransportBase::onNetworkData(
             SocketObserverInterface::PacketsReceivedEvent::ReceivedUdpPacket::
                 Builder()
                     .setPacketReceiveTime(packet.timings.receiveTimePoint)
-                    .setPacketNumBytes(packet.buf->computeChainDataLength())
+                    .setPacketNumBytes(packet.buf.chainLength())
+                    .setPacketTos(packet.tosValue)
                     .build());
       }
 
@@ -1923,6 +1924,10 @@ void QuicTransportBase::onNetworkData(
       // Received data could contain valid path response, in which case
       // path validation timeout should be canceled
       schedulePathValidationTimeout();
+
+      // If ECN is enabled, make sure that the packet marking is happening as
+      // expected
+      validateECNState();
     } else {
       // In the closed state, we would want to write a close if possible
       // however the write looper will not be set.
@@ -3291,6 +3296,8 @@ void QuicTransportBase::setTransportSettings(
     conn_->datagramState.maxWriteBufferSize =
         conn_->transportSettings.datagramConfig.writeBufSize;
   }
+
+  updateSocketTosSettings();
 }
 
 folly::Expected<folly::Unit, LocalErrorCode>
@@ -3324,6 +3331,27 @@ void QuicTransportBase::updateCongestionControlSettings(
   conn_->transportSettings.copaDeltaParam = transportSettings.copaDeltaParam;
   conn_->transportSettings.copaUseRttStanding =
       transportSettings.copaUseRttStanding;
+}
+
+void QuicTransportBase::updateSocketTosSettings() {
+  const auto initialTosValue = conn_->socketTos.value;
+  if (conn_->transportSettings.enableEcnOnEgress) {
+    if (conn_->transportSettings.useL4sEcn) {
+      conn_->socketTos.fields.ecn = kEcnECT1;
+      conn_->ecnState = ECNState::AttemptingL4S;
+    } else {
+      conn_->socketTos.fields.ecn = kEcnECT0;
+      conn_->ecnState = ECNState::AttemptingECN;
+    }
+  } else {
+    conn_->socketTos.fields.ecn = 0;
+    conn_->ecnState = ECNState::NotAttempted;
+  }
+
+  if (socket_ && socket_->isBound() &&
+      conn_->socketTos.value != initialTosValue) {
+    socket_->setTosOrTrafficClass(conn_->socketTos.value);
+  }
 }
 
 folly::Expected<folly::Unit, LocalErrorCode>
@@ -3930,6 +3958,78 @@ void QuicTransportBase::updatePacketProcessorsPrewriteRequests() {
   conn_->socketCmsgsState.targetWriteCount = conn_->writeCount;
 }
 
+void QuicTransportBase::validateECNState() {
+  if (conn_->ecnState == ECNState::NotAttempted ||
+      conn_->ecnState == ECNState::FailedValidation) {
+    // Verification not needed
+    return;
+  }
+  const auto& minExpectedMarkedPacketsCount =
+      conn_->ackStates.appDataAckState.minimumExpectedEcnMarksEchoed;
+  if (minExpectedMarkedPacketsCount < 10) {
+    // We wait for 10 ack-eliciting app data packets to be marked before trying
+    // to validate ECN.
+    return;
+  }
+  const auto& maxExpectedMarkedPacketsCount = conn_->lossState.totalPacketsSent;
+
+  auto markedPacketCount = conn_->ackStates.appDataAckState.ecnCECountEchoed;
+
+  if (conn_->ecnState == ECNState::AttemptingECN ||
+      conn_->ecnState == ECNState::ValidatedECN) {
+    // Check the number of marks seen (ECT0 + CE). ECT1 should be zero.
+    markedPacketCount += conn_->ackStates.appDataAckState.ecnECT0CountEchoed;
+
+    if (markedPacketCount >= minExpectedMarkedPacketsCount &&
+        markedPacketCount <= maxExpectedMarkedPacketsCount &&
+        conn_->ackStates.appDataAckState.ecnECT1CountEchoed == 0) {
+      if (conn_->ecnState != ECNState::ValidatedECN) {
+        conn_->ecnState = ECNState::ValidatedECN;
+        VLOG(4) << fmt::format(
+            "ECN validation successful. Marked {} of {} expected",
+            markedPacketCount,
+            minExpectedMarkedPacketsCount);
+      }
+    } else {
+      conn_->ecnState = ECNState::FailedValidation;
+      VLOG(4) << fmt::format(
+          "ECN validation failed. Marked {} of {} expected",
+          markedPacketCount,
+          minExpectedMarkedPacketsCount);
+    }
+  } else if (
+      conn_->ecnState == ECNState::AttemptingL4S ||
+      conn_->ecnState == ECNState::ValidatedL4S) {
+    // Check the number of marks seen (ECT1 + CE). ECT0 should be zero.
+    markedPacketCount += conn_->ackStates.appDataAckState.ecnECT1CountEchoed;
+
+    if (markedPacketCount >= minExpectedMarkedPacketsCount &&
+        markedPacketCount <= maxExpectedMarkedPacketsCount &&
+        conn_->ackStates.appDataAckState.ecnECT0CountEchoed == 0) {
+      if (conn_->ecnState != ECNState::ValidatedL4S) {
+        conn_->ecnState = ECNState::ValidatedL4S;
+        VLOG(4) << fmt::format(
+            "L4S validation successful. Marked {} of {} expected",
+            markedPacketCount,
+            minExpectedMarkedPacketsCount);
+      }
+    } else {
+      conn_->ecnState = ECNState::FailedValidation;
+      VLOG(4) << fmt::format(
+          "L4S validation failed. Marked {} of {} expected",
+          markedPacketCount,
+          minExpectedMarkedPacketsCount);
+    }
+  }
+
+  if (conn_->ecnState == ECNState::FailedValidation) {
+    conn_->socketTos.fields.ecn = 0;
+    CHECK(socket_ && socket_->isBound());
+    socket_->setTosOrTrafficClass(conn_->socketTos.value);
+    VLOG(4) << "ECN validation failed. Disabling ECN";
+  }
+}
+
 folly::Optional<folly::SocketCmsgMap>
 QuicTransportBase::getAdditionalCmsgsForAsyncUDPSocket() {
   if (conn_->socketCmsgsState.additionalCmsgs) {
@@ -3938,6 +4038,67 @@ QuicTransportBase::getAdditionalCmsgsForAsyncUDPSocket() {
     return conn_->socketCmsgsState.additionalCmsgs;
   }
   return folly::none;
+}
+
+WriteQuicDataResult QuicTransportBase::handleInitialWriteDataCommon(
+    const ConnectionId& srcConnId,
+    const ConnectionId& dstConnId,
+    uint64_t packetLimit,
+    const std::string& token) {
+  CHECK(conn_->initialWriteCipher);
+  auto version = conn_->version.value_or(*(conn_->originalVersion));
+  auto& initialCryptoStream =
+      *getCryptoStream(*conn_->cryptoState, EncryptionLevel::Initial);
+  CryptoStreamScheduler initialScheduler(*conn_, initialCryptoStream);
+  auto& numProbePackets =
+      conn_->pendingEvents.numProbePackets[PacketNumberSpace::Initial];
+  if ((initialCryptoStream.retransmissionBuffer.size() &&
+       conn_->outstandings.packetCount[PacketNumberSpace::Initial] &&
+       numProbePackets) ||
+      initialScheduler.hasData() || toWriteInitialAcks(*conn_)) {
+    CHECK(conn_->initialHeaderCipher);
+    return writeCryptoAndAckDataToSocket(
+        *socket_,
+        *conn_,
+        srcConnId /* src */,
+        dstConnId /* dst */,
+        LongHeader::Types::Initial,
+        *conn_->initialWriteCipher,
+        *conn_->initialHeaderCipher,
+        version,
+        packetLimit,
+        token);
+  }
+  return WriteQuicDataResult{};
+}
+
+WriteQuicDataResult QuicTransportBase::handleHandshakeWriteDataCommon(
+    const ConnectionId& srcConnId,
+    const ConnectionId& dstConnId,
+    uint64_t packetLimit) {
+  auto version = conn_->version.value_or(*(conn_->originalVersion));
+  CHECK(conn_->handshakeWriteCipher);
+  auto& handshakeCryptoStream =
+      *getCryptoStream(*conn_->cryptoState, EncryptionLevel::Handshake);
+  CryptoStreamScheduler handshakeScheduler(*conn_, handshakeCryptoStream);
+  auto& numProbePackets =
+      conn_->pendingEvents.numProbePackets[PacketNumberSpace::Handshake];
+  if ((conn_->outstandings.packetCount[PacketNumberSpace::Handshake] &&
+       handshakeCryptoStream.retransmissionBuffer.size() && numProbePackets) ||
+      handshakeScheduler.hasData() || toWriteHandshakeAcks(*conn_)) {
+    CHECK(conn_->handshakeWriteHeaderCipher);
+    return writeCryptoAndAckDataToSocket(
+        *socket_,
+        *conn_,
+        srcConnId /* src */,
+        dstConnId /* dst */,
+        LongHeader::Types::Handshake,
+        *conn_->handshakeWriteCipher,
+        *conn_->handshakeWriteHeaderCipher,
+        version,
+        packetLimit);
+  }
+  return WriteQuicDataResult{};
 }
 
 } // namespace quic

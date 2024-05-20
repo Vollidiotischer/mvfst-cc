@@ -190,6 +190,9 @@ struct ReadAckFrame {
   folly::Optional<std::chrono::microseconds> maybeLatestRecvdPacketTime;
   folly::Optional<PacketNum> maybeLatestRecvdPacketNum;
   RecvdPacketsTimestampsRangeVec recvdPacketsTimestampRanges;
+  uint32_t ecnECT0Count{0};
+  uint32_t ecnECT1Count{0};
+  uint32_t ecnCECount{0};
   bool operator==(const ReadAckFrame& /*rhs*/) const {
     // Can't compare ackBlocks, function is just here to appease compiler.
     return false;
@@ -208,6 +211,9 @@ struct WriteAckFrame {
   folly::Optional<std::chrono::microseconds> maybeLatestRecvdPacketTime;
   folly::Optional<PacketNum> maybeLatestRecvdPacketNum;
   RecvdPacketsTimestampsRangeVec recvdPacketsTimestampRanges;
+  uint32_t ecnECT0Count{0};
+  uint32_t ecnECT1Count{0};
+  uint32_t ecnCECount{0};
   bool operator==(const WriteAckFrame& /*rhs*/) const {
     // Can't compare ackBlocks, function is just here to appease compiler.
     return false;
@@ -251,6 +257,10 @@ struct WriteAckFrameState {
   // element in the deque (e.g., entries are not added for packets that
   // arrive out of order relative to previously received packets).
   CircularDeque<ReceivedPacket> recvdPacketInfos;
+  // The count of ECN marks seen on received packets.
+  uint32_t ecnECT0CountReceived{0};
+  uint32_t ecnECT1CountReceived{0};
+  uint32_t ecnCECountReceived{0};
 };
 
 struct WriteAckFrameMetaData {
@@ -1194,6 +1204,15 @@ struct RegularQuicWritePacket : public RegularPacket {
 
   explicit RegularQuicWritePacket(PacketHeader&& headerIn)
       : RegularPacket(std::move(headerIn)) {}
+};
+
+enum class ECNState : uint8_t {
+  NotAttempted, // ECN marking disabled
+  AttemptingECN, // ECN enabled, but not yet negotiated
+  ValidatedECN, // ECN enabled, and negotiated successfully
+  AttemptingL4S, // L4S enabled, but not yet negotiated
+  ValidatedL4S, // L4S enabled, and negotiated successfully
+  FailedValidation, // ECN or L4S was enabled, but failed validation
 };
 
 /**

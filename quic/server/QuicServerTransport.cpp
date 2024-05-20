@@ -6,6 +6,7 @@
  */
 
 #include <quic/congestion_control/Bbr.h>
+#include <quic/congestion_control/ServerCongestionControllerFactory.h>
 #include <quic/dsr/frontend/WriteFunctions.h>
 #include <quic/fizz/server/handshake/FizzServerQuicHandshakeContext.h>
 #include <quic/server/QuicServerTransport.h>
@@ -193,6 +194,7 @@ void QuicServerTransport::onReadData(
   maybeNotifyConnectionIdRetired();
   maybeIssueConnectionIds();
   maybeNotifyTransportReady();
+  maybeUpdateCongestionControllerFromTicket();
 }
 
 void QuicServerTransport::accept() {
@@ -273,61 +275,18 @@ void QuicServerTransport::writeData() {
     maybeInitiateKeyUpdate(*conn_);
   };
   if (conn_->initialWriteCipher) {
-    auto& initialCryptoStream =
-        *getCryptoStream(*conn_->cryptoState, EncryptionLevel::Initial);
-    CryptoStreamScheduler initialScheduler(*conn_, initialCryptoStream);
-    auto& numProbePackets =
-        conn_->pendingEvents.numProbePackets[PacketNumberSpace::Initial];
-    if ((numProbePackets && initialCryptoStream.retransmissionBuffer.size() &&
-         conn_->outstandings.packetCount[PacketNumberSpace::Initial]) ||
-        initialScheduler.hasData() || toWriteInitialAcks(*conn_)) {
-      CHECK(conn_->initialWriteCipher);
-      CHECK(conn_->initialHeaderCipher);
-
-      auto res = writeCryptoAndAckDataToSocket(
-          *socket_,
-          *conn_,
-          srcConnId /* src */,
-          destConnId /* dst */,
-          LongHeader::Types::Initial,
-          *conn_->initialWriteCipher,
-          *conn_->initialHeaderCipher,
-          version,
-          packetLimit);
-
-      packetLimit -= res.packetsWritten;
-      serverConn_->numHandshakeBytesSent += res.bytesWritten;
-    }
+    auto res = handleInitialWriteDataCommon(srcConnId, destConnId, packetLimit);
+    packetLimit -= res.packetsWritten;
+    serverConn_->numHandshakeBytesSent += res.bytesWritten;
     if (!packetLimit && !conn_->pendingEvents.anyProbePackets()) {
       return;
     }
   }
   if (conn_->handshakeWriteCipher) {
-    auto& handshakeCryptoStream =
-        *getCryptoStream(*conn_->cryptoState, EncryptionLevel::Handshake);
-    CryptoStreamScheduler handshakeScheduler(*conn_, handshakeCryptoStream);
-    auto& numProbePackets =
-        conn_->pendingEvents.numProbePackets[PacketNumberSpace::Handshake];
-    if ((conn_->outstandings.packetCount[PacketNumberSpace::Handshake] &&
-         handshakeCryptoStream.retransmissionBuffer.size() &&
-         numProbePackets) ||
-        handshakeScheduler.hasData() || toWriteHandshakeAcks(*conn_)) {
-      CHECK(conn_->handshakeWriteCipher);
-      CHECK(conn_->handshakeWriteHeaderCipher);
-      auto res = writeCryptoAndAckDataToSocket(
-          *socket_,
-          *conn_,
-          srcConnId /* src */,
-          destConnId /* dst */,
-          LongHeader::Types::Handshake,
-          *conn_->handshakeWriteCipher,
-          *conn_->handshakeWriteHeaderCipher,
-          version,
-          packetLimit);
-
-      packetLimit -= res.packetsWritten;
-      serverConn_->numHandshakeBytesSent += res.bytesWritten;
-    }
+    auto res =
+        handleHandshakeWriteDataCommon(srcConnId, destConnId, packetLimit);
+    packetLimit -= res.packetsWritten;
+    serverConn_->numHandshakeBytesSent += res.bytesWritten;
     if (!packetLimit && !conn_->pendingEvents.anyProbePackets()) {
       return;
     }
@@ -518,9 +477,7 @@ void QuicServerTransport::processPendingData(bool async) {
       for (auto& pendingPacket : *pendingData) {
         serverPtr->onNetworkData(
             pendingPacket.peer,
-            NetworkData(
-                std::move(pendingPacket.udpPacket.buf),
-                pendingPacket.udpPacket.timings.receiveTimePoint));
+            NetworkData(std::move(pendingPacket.udpPacket)));
         if (serverPtr->closeState_ == CloseState::CLOSED) {
           // The pending data could potentially contain a connection close, or
           // the app could have triggered a connection close with an error. It
@@ -691,6 +648,43 @@ void QuicServerTransport::maybeNotifyTransportReady() {
 
     // This is a new connection. Update QUIC Stats
     QUIC_STATS(conn_->statsCallback, onNewConnection);
+  }
+}
+
+namespace {
+uint64_t determineCwndFromHint(const TransportSettings& tp, uint64_t cwndHint) {
+  if (cwndHint <= tp.cwndModerateJumpstart) {
+    // Weak Connectivity History
+    return tp.cwndWeakJumpstart;
+  } else if (cwndHint <= tp.cwndStrongJumpstart) {
+    // Moderate Connectivity History
+    return tp.cwndModerateJumpstart;
+  } else {
+    // Strong Connectivity History
+    return tp.cwndStrongJumpstart;
+  }
+}
+} // namespace
+
+void QuicServerTransport::maybeUpdateCongestionControllerFromTicket() {
+  if (serverConn_->transportSettings.useCwndHintsInSessionTicket &&
+      serverConn_->maybeCwndHintBytes.has_value() &&
+      serverConn_->lossState.maybeLrtt.has_value()) {
+    auto newCwnd = determineCwndFromHint(
+        serverConn_->transportSettings,
+        serverConn_->maybeCwndHintBytes.value());
+    serverConn_->maybeCwndHintBytes.reset();
+    if (newCwnd > conn_->congestionController->getCongestionWindow()) {
+      conn_->transportSettings.initCwndInMss =
+          newCwnd / conn_->udpSendPacketLen;
+      if (conn_->pacer) {
+        conn_->pacer.get()->refreshPacingRate(
+            newCwnd, serverConn_->lossState.lrtt);
+      }
+      conn_->congestionController =
+          conn_->congestionControllerFactory.get()->makeCongestionController(
+              *conn_, conn_->congestionController.get()->type());
+    }
   }
 }
 
@@ -1211,6 +1205,19 @@ QuicServerTransport::getPeerTransportParams() const {
     }
   }
   return folly::none;
+}
+
+void QuicServerTransport::setCongestionControl(CongestionControlType type) {
+  if (!conn_->congestionControllerFactory) {
+    // If you are hitting this, update your application to call
+    // setCongestionControllerFactory() on the transport to share one factory
+    // for all transports.
+    conn_->congestionControllerFactory =
+        std::make_shared<ServerCongestionControllerFactory>();
+    LOG(WARNING)
+        << "A congestion controller factory is not set. Using a default per-transport instance.";
+  }
+  QuicTransportBase::setCongestionControl(type);
 }
 
 } // namespace quic
