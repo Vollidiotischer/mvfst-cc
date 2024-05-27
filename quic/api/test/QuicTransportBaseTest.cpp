@@ -334,6 +334,11 @@ class TestQuicTransport
         conn_->transportSettings.writeConnectionDataPacketsLimit);
   }
 
+  // This is to expose the protected pacedWriteDataToSocket() function
+  void pacedWriteDataToSocketThroughTransportBase() {
+    pacedWriteDataToSocket();
+  }
+
   bool hasWriteCipher() const {
     return conn_->oneRttWriteCipher != nullptr;
   }
@@ -559,6 +564,26 @@ class TestQuicTransport
       const folly::Optional<folly::ByteRange>&,
       uint16_t) const override {
     return folly::none;
+  }
+
+  void updateWriteLooper(bool thisIteration) {
+    QuicTransportBase::updateWriteLooper(thisIteration);
+  }
+
+  void maybeStopWriteLooperAndArmSocketWritableEvent() {
+    QuicTransportBase::maybeStopWriteLooperAndArmSocketWritableEvent();
+  }
+
+  void closeImpl(
+      folly::Optional<QuicError> error,
+      bool drainConnection = true,
+      bool sendCloseImmediately = true) {
+    QuicTransportBase::closeImpl(
+        std::move(error), drainConnection, sendCloseImmediately);
+  }
+
+  void onSocketWritable() noexcept override {
+    QuicTransportBase::onSocketWritable();
   }
 
   QuicServerConnectionState* transportConn;
@@ -4594,6 +4619,331 @@ TEST_P(
   EXPECT_TRUE(res.hasError());
   EXPECT_EQ(res.error(), LocalErrorCode::RTX_POLICIES_LIMIT_EXCEEDED);
   EXPECT_EQ(transport->getStreamGroupRetransmissionPolicies().size(), 1);
+
+  transport.reset();
+}
+
+TEST_P(QuicTransportImplTestBase, TestUpdateWriteLooperWithWritableCallback) {
+  auto transportSettings = transport->getTransportSettings();
+  transportSettings.useSockWritableEvents = true;
+  transport->setTransportSettings(transportSettings);
+  transport->getConnectionState().streamManager->refreshTransportSettings(
+      transportSettings);
+
+  EXPECT_CALL(*socketPtr, isWritableCallbackSet()).WillOnce(Return(true));
+  transport->updateWriteLooper(true /* thisIteration */);
+
+  // Disable useSockWritableEvents.
+  transportSettings = transport->getTransportSettings();
+  transportSettings.useSockWritableEvents = false;
+  transport->setTransportSettings(transportSettings);
+  transport->getConnectionState().streamManager->refreshTransportSettings(
+      transportSettings);
+
+  EXPECT_CALL(*socketPtr, isWritableCallbackSet()).Times(0);
+  transport->updateWriteLooper(true /* thisIteration */);
+
+  transport.reset();
+}
+
+TEST_P(
+    QuicTransportImplTestBase,
+    TestMaybeStopWriteLooperAndArmSocketWritableEvent) {
+  auto transportSettings = transport->getTransportSettings();
+  transportSettings.useSockWritableEvents = true;
+  transport->setTransportSettings(transportSettings);
+  transport->getConnectionState().streamManager->refreshTransportSettings(
+      transportSettings);
+
+  transport->transportConn->oneRttWriteCipher = test::createNoOpAead();
+
+  // Create a stream with outgoing data.
+  auto streamId = transport->createBidirectionalStream().value();
+  const auto& conn = transport->transportConn;
+  auto stream = transport->getStream(streamId);
+  stream->writeBuffer.append(IOBuf::copyBuffer("hello"));
+
+  // Insert streamId into the list.
+  conn->streamManager->addWritable(*stream);
+  conn->streamManager->updateWritableStreams(*stream);
+
+  // Write looper is running.
+  transport->writeLooper()->run(true /* thisIteration */);
+  EXPECT_TRUE(transport->writeLooper()->isRunning());
+
+  // Write event is not armed.
+  EXPECT_CALL(*socketPtr, isWritableCallbackSet()).WillOnce(Return(false));
+  EXPECT_CALL(*socketPtr, resumeWrite(_))
+      .WillOnce(Return(
+          folly::makeExpected<folly::AsyncSocketException>(folly::Unit())));
+  transport->maybeStopWriteLooperAndArmSocketWritableEvent();
+  // Write looper is stopped.
+  EXPECT_FALSE(transport->writeLooper()->isRunning());
+
+  transport.reset();
+}
+
+TEST_P(
+    QuicTransportImplTestBase,
+    TestMaybeStopWriteLooperAndArmSocketWritableEventNoData) {
+  auto transportSettings = transport->getTransportSettings();
+  transportSettings.useSockWritableEvents = true;
+  transport->setTransportSettings(transportSettings);
+  transport->getConnectionState().streamManager->refreshTransportSettings(
+      transportSettings);
+
+  transport->transportConn->oneRttWriteCipher = test::createNoOpAead();
+
+  // Write looper is running.
+  transport->writeLooper()->run(true /* thisIteration */);
+  EXPECT_TRUE(transport->writeLooper()->isRunning());
+
+  // Write event is not armed.
+  EXPECT_CALL(*socketPtr, isWritableCallbackSet()).WillOnce(Return(false));
+  EXPECT_CALL(*socketPtr, resumeWrite(_)).Times(0);
+  transport->maybeStopWriteLooperAndArmSocketWritableEvent();
+  // Write looper is still running.
+  EXPECT_TRUE(transport->writeLooper()->isRunning());
+
+  transport.reset();
+}
+
+TEST_P(
+    QuicTransportImplTestBase,
+    TestMaybeStopWriteLooperAndArmSocketWritableEventAlreadyArmed) {
+  auto transportSettings = transport->getTransportSettings();
+  transportSettings.useSockWritableEvents = true;
+  transport->setTransportSettings(transportSettings);
+  transport->getConnectionState().streamManager->refreshTransportSettings(
+      transportSettings);
+
+  transport->transportConn->oneRttWriteCipher = test::createNoOpAead();
+
+  // Create a stream with outgoing data.
+  auto streamId = transport->createBidirectionalStream().value();
+  const auto& conn = transport->transportConn;
+  auto stream = transport->getStream(streamId);
+  stream->writeBuffer.append(IOBuf::copyBuffer("hello"));
+
+  // Insert streamId into the list.
+  conn->streamManager->addWritable(*stream);
+  conn->streamManager->updateWritableStreams(*stream);
+
+  // Write looper is stopped.
+  EXPECT_FALSE(transport->writeLooper()->isRunning());
+
+  // Write event is already armed.
+  EXPECT_CALL(*socketPtr, isWritableCallbackSet()).WillOnce(Return(true));
+  EXPECT_CALL(*socketPtr, resumeWrite(_)).Times(0);
+  transport->maybeStopWriteLooperAndArmSocketWritableEvent();
+  // Write looper is still stopped.
+  EXPECT_FALSE(transport->writeLooper()->isRunning());
+
+  transport.reset();
+}
+
+TEST_P(
+    QuicTransportImplTestBase,
+    TestMaybeStopWriteLooperAndArmSocketWritableEventNoCongestionControlAvailable) {
+  auto transportSettings = transport->getTransportSettings();
+  transportSettings.useSockWritableEvents = true;
+  transport->setTransportSettings(transportSettings);
+  transport->getConnectionState().streamManager->refreshTransportSettings(
+      transportSettings);
+
+  transport->transportConn->oneRttWriteCipher = test::createNoOpAead();
+
+  // Create a stream with outgoing data.
+  auto streamId = transport->createBidirectionalStream().value();
+  const auto& conn = transport->transportConn;
+  auto stream = transport->getStream(streamId);
+  stream->writeBuffer.append(IOBuf::copyBuffer("hello"));
+
+  // Insert streamId into the list.
+  conn->streamManager->addWritable(*stream);
+  conn->streamManager->updateWritableStreams(*stream);
+
+  // Write looper is running.
+  transport->writeLooper()->run(true /* thisIteration */);
+  EXPECT_TRUE(transport->writeLooper()->isRunning());
+
+  // Fake in-flight bytes for CC to return no window available.
+  conn->lossState.inflightBytes = 123234534;
+
+  // Write event is not armed.
+  EXPECT_CALL(*socketPtr, isWritableCallbackSet()).WillOnce(Return(false));
+  EXPECT_CALL(*socketPtr, resumeWrite(_)).Times(0);
+  transport->maybeStopWriteLooperAndArmSocketWritableEvent();
+  // Write looper is still running.
+  EXPECT_TRUE(transport->writeLooper()->isRunning());
+
+  transport.reset();
+}
+
+TEST_P(
+    QuicTransportImplTestBase,
+    TestMaybeStopWriteLooperAndArmSocketWritableEventNoFlowControlAvailable) {
+  auto transportSettings = transport->getTransportSettings();
+  transportSettings.useSockWritableEvents = true;
+  transport->setTransportSettings(transportSettings);
+  transport->getConnectionState().streamManager->refreshTransportSettings(
+      transportSettings);
+
+  transport->transportConn->oneRttWriteCipher = test::createNoOpAead();
+
+  // Create a stream with outgoing data.
+  auto streamId = transport->createBidirectionalStream().value();
+  const auto& conn = transport->transportConn;
+  auto stream = transport->getStream(streamId);
+  stream->writeBuffer.append(IOBuf::copyBuffer("hello"));
+
+  // Insert streamId into the list.
+  conn->streamManager->addWritable(*stream);
+  conn->streamManager->updateWritableStreams(*stream);
+
+  // Write looper is running.
+  transport->writeLooper()->run(true /* thisIteration */);
+  EXPECT_TRUE(transport->writeLooper()->isRunning());
+
+  // Fake no flow control.
+  conn->flowControlState.peerAdvertisedMaxOffset =
+      conn->flowControlState.sumCurWriteOffset = 1024;
+
+  // Write event is not armed.
+  EXPECT_CALL(*socketPtr, isWritableCallbackSet()).WillOnce(Return(false));
+  EXPECT_CALL(*socketPtr, resumeWrite(_)).Times(0);
+  transport->maybeStopWriteLooperAndArmSocketWritableEvent();
+  // Write looper is still running.
+  EXPECT_TRUE(transport->writeLooper()->isRunning());
+
+  transport.reset();
+}
+
+TEST_P(QuicTransportImplTestBase, TestOnSocketWritable) {
+  auto transportSettings = transport->getTransportSettings();
+  transportSettings.useSockWritableEvents = true;
+  transport->setTransportSettings(transportSettings);
+  transport->getConnectionState().streamManager->refreshTransportSettings(
+      transportSettings);
+
+  // Write looper is not running.
+  EXPECT_FALSE(transport->writeLooper()->isRunning());
+
+  EXPECT_CALL(*socketPtr, pauseWrite()).Times(1);
+  transport->onSocketWritable();
+
+  // Write looper is running.
+  EXPECT_TRUE(transport->writeLooper()->isRunning());
+
+  transport.reset();
+}
+
+TEST_P(
+    QuicTransportImplTestBase,
+    TestBackpressureWriterArmsSocketWritableEvent) {
+  transport->setServerConnectionId();
+  auto transportSettings = transport->getTransportSettings();
+
+  transportSettings.useSockWritableEvents = true;
+  transportSettings.batchingMode = QuicBatchingMode::BATCHING_MODE_NONE;
+  transportSettings.maxBatchSize = 1;
+  transportSettings.dataPathType = DataPathType::ChainedMemory;
+  transportSettings.enableWriterBackpressure = true;
+
+  transport->setTransportSettings(transportSettings);
+  transport->getConnectionState().streamManager->refreshTransportSettings(
+      transportSettings);
+
+  transport->transportConn->oneRttWriteCipher = test::createNoOpAead();
+
+  // Create a stream with outgoing data.
+  auto streamId = transport->createBidirectionalStream().value();
+  const auto& conn = transport->transportConn;
+  auto stream = transport->getStream(streamId);
+  std::string testString = "hello";
+  stream->writeBuffer.append(IOBuf::copyBuffer(testString));
+  conn->flowControlState.sumCurStreamBufferLen = testString.length();
+
+  // Insert streamId into the list.
+  conn->streamManager->addWritable(*stream);
+  conn->streamManager->updateWritableStreams(*stream);
+
+  // Mock arming the write callback
+  bool writeCallbackArmed = false;
+  EXPECT_CALL(*socketPtr, isWritableCallbackSet()).WillRepeatedly(Invoke([&]() {
+    return writeCallbackArmed;
+  }));
+  EXPECT_CALL(*socketPtr, resumeWrite(_))
+      .WillOnce(Invoke([&](QuicAsyncUDPSocket::WriteCallback*) {
+        writeCallbackArmed = true;
+        return folly::makeExpected<folly::AsyncSocketException>(folly::Unit());
+      }));
+
+  // Fail the first write loop.
+  EXPECT_CALL(*socketPtr, write(_, _))
+      .Times(2) // We attempt to flush the batch twice inside the write loop.
+                // Fail both.
+      .WillRepeatedly(Invoke([&](const auto& /* addr */,
+                                 const std::unique_ptr<folly::IOBuf>& /*buf*/) {
+        errno = EAGAIN;
+        return 0;
+      }));
+
+  transport->writeLooper()->run(true /* thisIteration */);
+  EXPECT_TRUE(transport->writeLooper()->isRunning());
+
+  // A write attempt will cache the failed write, stop the write looper, and arm
+  // the write callback.
+  transport->pacedWriteDataToSocketThroughTransportBase();
+
+  // The transport has cached the failed write buffer.
+  EXPECT_TRUE(conn->pendingWriteBatch_.buf);
+  // Write looper stopped.
+  EXPECT_FALSE(transport->writeLooper()->isRunning());
+  // Write callback armed.
+  EXPECT_TRUE(writeCallbackArmed);
+
+  // Reset will make one write attempt. We don't care what happens to it
+  EXPECT_CALL(*socketPtr, write(_, _))
+      .Times(1)
+      .WillRepeatedly(Invoke([&](const auto& /* addr */,
+                                 const std::unique_ptr<folly::IOBuf>& buf) {
+        errno = 0;
+        return buf->computeChainDataLength();
+      }));
+  transport.reset();
+}
+
+TEST_P(
+    QuicTransportImplTestBase,
+    TestMaybeStopWriteLooperAndArmSocketWritableEventOnClosedSocket) {
+  auto transportSettings = transport->getTransportSettings();
+  transportSettings.useSockWritableEvents = true;
+  transport->setTransportSettings(transportSettings);
+  transport->getConnectionState().streamManager->refreshTransportSettings(
+      transportSettings);
+
+  transport->transportConn->oneRttWriteCipher = test::createNoOpAead();
+
+  // Create a stream with outgoing data.
+  auto streamId = transport->createBidirectionalStream().value();
+  const auto& conn = transport->transportConn;
+  auto stream = transport->getStream(streamId);
+  stream->writeBuffer.append(IOBuf::copyBuffer("hello"));
+
+  // Insert streamId into the list.
+  conn->streamManager->addWritable(*stream);
+  conn->streamManager->updateWritableStreams(*stream);
+
+  // Write looper is running.
+  transport->writeLooper()->run(true /* thisIteration */);
+  EXPECT_TRUE(transport->writeLooper()->isRunning());
+
+  // Close the socket.
+  transport->closeImpl((QuicError(
+      QuicErrorCode(TransportErrorCode::INTERNAL_ERROR),
+      std::string("writeSocketDataAndCatch()  error"))));
+  transport->maybeStopWriteLooperAndArmSocketWritableEvent();
 
   transport.reset();
 }

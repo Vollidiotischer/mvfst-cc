@@ -94,6 +94,12 @@ struct CongestionControlConfig {
   // Use a different pacing gain during Startup.
   // If value < 0, use the default pacing gain.
   float overrideStartupPacingGain{-1.0};
+
+  // Used by: Cubic
+  // The target fraction of packets to be marked with CE per-RTT when l4s is
+  // used This helps accommodate minor packet bursts that can be caused by pacer
+  // bursts
+  float l4sCETarget{0.02f};
 };
 
 struct DatagramConfig {
@@ -378,6 +384,11 @@ struct TransportSettings {
   uint64_t cwndWeakJumpstart{36000};
   uint64_t cwndModerateJumpstart{48000};
   uint64_t cwndStrongJumpstart{72000};
+  bool useSockWritableEvents{false};
+  // use backpressure single packet batch writer. Only works for
+  // QuicBatchingMode::BATCHING_MODE_NONE and DataPathType::ChainedMemory
+  // and requires useSockWritableEvents to be enabled.
+  bool enableWriterBackpressure{false};
 };
 
 } // namespace quic

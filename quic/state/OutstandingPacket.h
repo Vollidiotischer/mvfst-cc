@@ -119,7 +119,7 @@ struct OutstandingPacketMetadata {
       uint64_t inflightBytesIn,
       const LossState& lossStateIn,
       uint64_t writeCount,
-      DetailsPerStream detailsPerStream,
+      DetailsPerStream&& detailsPerStream,
       std::chrono::microseconds totalAppLimitedTimeUsecsIn = 0us)
       : time(timeIn),
         encodedSize(encodedSizeIn),
@@ -203,7 +203,7 @@ struct OutstandingPacket {
       uint64_t inflightBytesIn,
       const LossState& lossStateIn,
       uint64_t writeCount,
-      Metadata::DetailsPerStream detailsPerStream,
+      Metadata::DetailsPerStream&& detailsPerStream,
       std::chrono::microseconds totalAppLimitedTimeUsecs = 0us)
       : packet(std::move(packetIn)),
         metadata(OutstandingPacketMetadata(
@@ -237,7 +237,7 @@ struct OutstandingPacketWrapper : OutstandingPacket {
       uint64_t inflightBytesIn,
       const LossState& lossStateIn,
       uint64_t writeCount,
-      Metadata::DetailsPerStream detailsPerStream,
+      Metadata::DetailsPerStream&& detailsPerStream,
       std::chrono::microseconds totalAppLimitedTimeUsecs = 0us,
       std::function<void(const quic::OutstandingPacketWrapper&)>
           packetDestroyFn = nullptr)
@@ -258,11 +258,7 @@ struct OutstandingPacketWrapper : OutstandingPacket {
   OutstandingPacketWrapper(const OutstandingPacketWrapper& source) = delete;
   OutstandingPacketWrapper& operator=(const OutstandingPacketWrapper&) = delete;
 
-  OutstandingPacketWrapper(OutstandingPacketWrapper&& rhs) noexcept
-      : OutstandingPacket(std::move(static_cast<OutstandingPacket&>(rhs))) {
-    packetDestroyFn_ = rhs.packetDestroyFn_;
-    rhs.packetDestroyFn_ = nullptr;
-  }
+  OutstandingPacketWrapper(OutstandingPacketWrapper&& rhs) noexcept = default;
 
   OutstandingPacketWrapper& operator=(OutstandingPacketWrapper&& rhs) noexcept {
     // If this->packetDestroyFn_ is populated, then this OutstandingPacket is
@@ -273,8 +269,7 @@ struct OutstandingPacketWrapper : OutstandingPacket {
       packetDestroyFn_(*this);
     }
 
-    packetDestroyFn_ = rhs.packetDestroyFn_;
-    rhs.packetDestroyFn_ = nullptr;
+    packetDestroyFn_ = std::move(rhs.packetDestroyFn_);
     OutstandingPacket::operator=(std::move(rhs));
     return *this;
   }

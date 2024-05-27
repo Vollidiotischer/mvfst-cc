@@ -13,6 +13,7 @@
 #include <quic/api/QuicBatchWriterFactory.h>
 #include <quic/api/QuicTransportFunctions.h>
 #include <quic/common/TimeUtil.h>
+#include <quic/congestion_control/EcnL4sTracker.h>
 #include <quic/congestion_control/Pacer.h>
 #include <quic/congestion_control/TokenlessPacer.h>
 #include <quic/logging/QLoggerConstants.h>
@@ -348,13 +349,14 @@ void QuicTransportBase::closeImpl(
                         << *this;
   if (errorCode) {
     conn_->localConnectionError = errorCode;
-    std::string errorStr = conn_->localConnectionError->message;
-    std::string errorCodeStr = errorCode->message;
     if (conn_->qLogger) {
       conn_->qLogger->addConnectionClose(
-          errorStr, errorCodeStr, drainConnection, sendCloseImmediately);
+          conn_->localConnectionError->message,
+          errorCode->message,
+          drainConnection,
+          sendCloseImmediately);
     }
-  } else {
+  } else if (conn_->qLogger) {
     auto reason = folly::to<std::string>(
         "Server: ",
         kNoError,
@@ -362,10 +364,8 @@ void QuicTransportBase::closeImpl(
         isReset,
         ", Peer: isAbandon: ",
         isAbandon);
-    if (conn_->qLogger) {
-      conn_->qLogger->addConnectionClose(
-          kNoError, reason, drainConnection, sendCloseImmediately);
-    }
+    conn_->qLogger->addConnectionClose(
+        kNoError, std::move(reason), drainConnection, sendCloseImmediately);
   }
   cancelLossTimeout();
   cancelTimeout(&ackTimeout_);
@@ -409,9 +409,9 @@ void QuicTransportBase::closeImpl(
     // This connection was open, update the stats for close.
     QUIC_STATS(conn_->statsCallback, onConnectionClose, cancelCode.code);
 
-    processConnectionCallbacks(cancelCode);
+    processConnectionCallbacks(std::move(cancelCode));
   } else {
-    processConnectionSetupCallbacks(cancelCode);
+    processConnectionSetupCallbacks(std::move(cancelCode));
   }
 
   // can't invoke connection callbacks any more.
@@ -489,17 +489,15 @@ bool QuicTransportBase::processCancelCode(const QuicError& cancelCode) {
 }
 
 void QuicTransportBase::processConnectionSetupCallbacks(
-    const QuicError& cancelCode) {
+    QuicError&& cancelCode) {
   // connSetupCallback_ could be null if start() was never
   // invoked and the transport was destroyed or if the app initiated close.
   if (connSetupCallback_) {
-    connSetupCallback_->onConnectionSetupError(
-        QuicError(cancelCode.code, cancelCode.message));
+    connSetupCallback_->onConnectionSetupError(std::move(cancelCode));
   }
 }
 
-void QuicTransportBase::processConnectionCallbacks(
-    const QuicError& cancelCode) {
+void QuicTransportBase::processConnectionCallbacks(QuicError&& cancelCode) {
   // connCallback_ could be null if start() was never
   // invoked and the transport was destroyed or if the app initiated close.
   if (!connCallback_) {
@@ -514,7 +512,7 @@ void QuicTransportBase::processConnectionCallbacks(
   if (bool noError = processCancelCode(cancelCode)) {
     connCallback_->onConnectionEnd();
   } else {
-    connCallback_->onConnectionError(cancelCode);
+    connCallback_->onConnectionError(std::move(cancelCode));
   }
 }
 
@@ -1122,8 +1120,14 @@ void QuicTransportBase::updateWriteLooper(bool thisIteration) {
     writeLooper_->stop();
     return;
   }
-  // TODO: Also listens to write event from libevent. Only schedule write when
-  // the socket itself is writable.
+
+  // If socket writable events are in use, do nothing if we are already waiting
+  // for the write event.
+  if (conn_->transportSettings.useSockWritableEvents &&
+      socket_->isWritableCallbackSet()) {
+    return;
+  }
+
   auto writeDataReason = shouldWriteData(*conn_);
   if (writeDataReason != WriteDataReason::NO_WRITE) {
     VLOG(10) << nodeToString(conn_->nodeType)
@@ -2091,7 +2095,8 @@ StreamDirectionality QuicTransportBase::getStreamDirectionality(
 }
 
 folly::Expected<folly::Unit, LocalErrorCode>
-QuicTransportBase::notifyPendingWriteOnConnection(WriteCallback* wcb) {
+QuicTransportBase::notifyPendingWriteOnConnection(
+    QuicSocket::WriteCallback* wcb) {
   if (closeState_ != CloseState::OPEN) {
     return folly::makeUnexpected(LocalErrorCode::CONNECTION_CLOSED);
   }
@@ -2130,7 +2135,9 @@ QuicTransportBase::unregisterStreamWriteCallback(StreamId id) {
 }
 
 folly::Expected<folly::Unit, LocalErrorCode>
-QuicTransportBase::notifyPendingWriteOnStream(StreamId id, WriteCallback* wcb) {
+QuicTransportBase::notifyPendingWriteOnStream(
+    StreamId id,
+    QuicSocket::WriteCallback* wcb) {
   if (isReceivingStream(conn_->nodeType, id)) {
     return folly::makeUnexpected(LocalErrorCode::INVALID_OPERATION);
   }
@@ -3568,8 +3575,50 @@ void QuicTransportBase::runOnEvbAsync(
       true);
 }
 
+void QuicTransportBase::onSocketWritable() noexcept {
+  // Remove the writable callback.
+  socket_->pauseWrite();
+
+  // Try to write.
+  // If write fails again, pacedWriteDataToSocket() will re-arm the write event
+  // and stop the write looper.
+  writeLooper_->run(true /* thisIteration */);
+}
+
+void QuicTransportBase::maybeStopWriteLooperAndArmSocketWritableEvent() {
+  if (!socket_ || (closeState_ == CloseState::CLOSED)) {
+    return;
+  }
+  if (conn_->transportSettings.useSockWritableEvents &&
+      !socket_->isWritableCallbackSet()) {
+    // Check if all data has been written and we're not limited by flow
+    // control/congestion control.
+    auto writeReason = shouldWriteData(*conn_);
+    bool haveBufferToRetry = writeReason == WriteDataReason::BUFFERED_WRITE;
+    bool haveNewDataToWrite =
+        (writeReason != WriteDataReason::NO_WRITE) && !haveBufferToRetry;
+    bool haveCongestionControlWindow = true;
+    if (conn_->congestionController) {
+      haveCongestionControlWindow =
+          conn_->congestionController->getWritableBytes() > 0;
+    }
+    bool haveFlowControlWindow = getSendConnFlowControlBytesAPI(*conn_) > 0;
+    bool connHasWriteWindow =
+        haveCongestionControlWindow && haveFlowControlWindow;
+    if (haveBufferToRetry || (haveNewDataToWrite && connHasWriteWindow)) {
+      // Re-arm the write event and stop the write
+      // looper.
+      socket_->resumeWrite(this);
+      writeLooper_->stop();
+    }
+  }
+}
+
 void QuicTransportBase::pacedWriteDataToSocket() {
   [[maybe_unused]] auto self = sharedGuard();
+  SCOPE_EXIT {
+    self->maybeStopWriteLooperAndArmSocketWritableEvent();
+  };
 
   if (!isConnectionPaced(*conn_)) {
     // Not paced and connection is still open, normal write. Even if pacing is
@@ -4007,6 +4056,10 @@ void QuicTransportBase::validateECNState() {
         markedPacketCount <= maxExpectedMarkedPacketsCount &&
         conn_->ackStates.appDataAckState.ecnECT0CountEchoed == 0) {
       if (conn_->ecnState != ECNState::ValidatedL4S) {
+        if (!conn_->ecnL4sTracker) {
+          conn_->ecnL4sTracker = std::make_shared<EcnL4sTracker>(*conn_);
+          addPacketProcessor(conn_->ecnL4sTracker);
+        }
         conn_->ecnState = ECNState::ValidatedL4S;
         VLOG(4) << fmt::format(
             "L4S validation successful. Marked {} of {} expected",
@@ -4027,6 +4080,15 @@ void QuicTransportBase::validateECNState() {
     CHECK(socket_ && socket_->isBound());
     socket_->setTosOrTrafficClass(conn_->socketTos.value);
     VLOG(4) << "ECN validation failed. Disabling ECN";
+    if (conn_->ecnL4sTracker) {
+      conn_->packetProcessors.erase(
+          std::remove(
+              conn_->packetProcessors.begin(),
+              conn_->packetProcessors.end(),
+              conn_->ecnL4sTracker),
+          conn_->packetProcessors.end());
+      conn_->ecnL4sTracker.reset();
+    }
   }
 }
 

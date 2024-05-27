@@ -121,6 +121,7 @@ mvfst_cpp_library(
         "QuicCubic.h",
     ],
     deps = [
+        ":ecn_l4s_tracker",
         "//folly:chrono",
         "//quic/logging:qlogger_constants",
         "//quic/state:state_functions",
@@ -344,5 +345,22 @@ mvfst_cpp_library(
     ],
     exported_deps = [
         "//folly:optional",
+    ],
+)
+
+mvfst_cpp_library(
+    name = "ecn_l4s_tracker",
+    srcs = [
+        "EcnL4sTracker.cpp",
+    ],
+    headers = [
+        "EcnL4sTracker.h",
+    ],
+    deps = [
+        "//quic:exception",
+    ],
+    exported_deps = [
+        ":packet_processor",
+        "//quic/state:quic_state_machine",
     ],
 )

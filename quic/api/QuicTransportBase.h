@@ -36,7 +36,9 @@ enum class CloseState { OPEN, GRACEFUL_CLOSING, CLOSED };
  *    This is needed in order for QUIC to be able to live beyond the lifetime
  *    of the object that holds it to send graceful close messages to the peer.
  */
-class QuicTransportBase : public QuicSocket, QuicStreamPrioritiesObserver {
+class QuicTransportBase : public QuicSocket,
+                          QuicStreamPrioritiesObserver,
+                          QuicAsyncUDPSocket::WriteCallback {
  public:
   QuicTransportBase(
       std::shared_ptr<QuicEventBase> evb,
@@ -185,10 +187,10 @@ class QuicTransportBase : public QuicSocket, QuicStreamPrioritiesObserver {
 
   folly::Expected<folly::Unit, LocalErrorCode> notifyPendingWriteOnStream(
       StreamId id,
-      WriteCallback* wcb) override;
+      QuicSocket::WriteCallback* wcb) override;
 
   folly::Expected<folly::Unit, LocalErrorCode> notifyPendingWriteOnConnection(
-      WriteCallback* wcb) override;
+      QuicSocket::WriteCallback* wcb) override;
 
   folly::Expected<folly::Unit, LocalErrorCode> unregisterStreamWriteCallback(
       StreamId id) override;
@@ -868,8 +870,8 @@ class QuicTransportBase : public QuicSocket, QuicStreamPrioritiesObserver {
   }
 
   bool processCancelCode(const QuicError& cancelCode);
-  void processConnectionSetupCallbacks(const QuicError& cancelCode);
-  void processConnectionCallbacks(const QuicError& cancelCode);
+  void processConnectionSetupCallbacks(QuicError&& cancelCode);
+  void processConnectionCallbacks(QuicError&& cancelCode);
 
   /**
    * The callback function for AsyncUDPSocket to provide the additional cmsgs
@@ -912,8 +914,8 @@ class QuicTransportBase : public QuicSocket, QuicStreamPrioritiesObserver {
   DatagramCallback* datagramCallback_{nullptr};
   PingCallback* pingCallback_{nullptr};
 
-  WriteCallback* connWriteCallback_{nullptr};
-  std::map<StreamId, WriteCallback*> pendingWriteCallbacks_;
+  QuicSocket::WriteCallback* connWriteCallback_{nullptr};
+  std::map<StreamId, QuicSocket::WriteCallback*> pendingWriteCallbacks_;
   CloseState closeState_{CloseState::OPEN};
   bool transportReadyNotified_{false};
   bool handshakeDoneNotified_{false};
@@ -1026,6 +1028,9 @@ class QuicTransportBase : public QuicSocket, QuicStreamPrioritiesObserver {
       const ConnectionId& srcConnId,
       const ConnectionId& dstConnId,
       uint64_t packetLimit);
+
+  void onSocketWritable() noexcept override;
+  void maybeStopWriteLooperAndArmSocketWritableEvent();
 
  private:
   /**

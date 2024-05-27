@@ -273,6 +273,7 @@ using FrameList = std::vector<QuicSimpleFrame>;
 class CongestionControllerFactory;
 class LoopDetectorCallback;
 class PendingPathRateLimiter;
+class EcnL4sTracker;
 
 struct ReadDatagram {
   ReadDatagram(TimePoint recvTimePoint, BufQueue data)
@@ -526,6 +527,15 @@ struct QuicConnectionStateBase : public folly::DelayedDestruction {
   // Current state of flow control.
   ConnectionFlowControlState flowControlState;
 
+  struct PendingWriteBatch {
+    std::unique_ptr<folly::IOBuf> buf;
+    // More fields will be needed here for other batch writer types.
+  };
+
+  // A write batch that was attempted but did not succeed.
+  // This is only used by the SinglePacketBackpressureBatchWriter.
+  PendingWriteBatch pendingWriteBatch_;
+
   // The outstanding path challenge
   folly::Optional<PathChallengeFrame> outstandingPathValidation;
 
@@ -693,6 +703,7 @@ struct QuicConnectionStateBase : public folly::DelayedDestruction {
   SocketCmsgsState socketCmsgsState;
 
   ECNState ecnState{ECNState::NotAttempted};
+  std::shared_ptr<EcnL4sTracker> ecnL4sTracker;
   union TosHeader {
     uint8_t value{0};
     struct components {
