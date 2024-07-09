@@ -115,6 +115,12 @@ DEFINE_uint32(
     max_ack_receive_timestamps_to_send,
     quic::kMaxReceivedPktsTimestampsStored,
     "Controls how many packet receive timestamps the peer should send");
+DEFINE_bool(use_l4s_ecn, false, "Whether to use L4S for ECN marking");
+DEFINE_bool(
+    read_ecn,
+    false,
+    "Whether to read and echo ecn marking from ingress packets");
+DEFINE_uint32(dscp, 0, "DSCP value to use for outgoing packets");
 
 namespace quic {
 namespace tperf {
@@ -548,6 +554,21 @@ class TPerfServer {
            kDefaultReceiveTimestampsExponent});
     }
 
+    if (FLAGS_use_l4s_ecn) {
+      settings.enableEcnOnEgress = true;
+      settings.useL4sEcn = true;
+      settings.minBurstPackets = 1;
+      settings.experimentalPacer = true;
+      settings.ccaConfig.onlyGrowCwndWhenLimited = true;
+      settings.ccaConfig.leaveHeadroomForCwndLimited = true;
+    }
+
+    if (FLAGS_read_ecn) {
+      settings.readEcnOnIngress = FLAGS_read_ecn;
+      settings.shouldRecvBatch = false;
+    }
+    settings.dscpValue = FLAGS_dscp;
+
     server_->setCongestionControllerFactory(
         std::make_shared<ServerCongestionControllerFactory>());
     server_->setTransportSettings(settings);
@@ -642,7 +663,7 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
   }
 
   void timeoutExpired() noexcept override {
-    quicClient_->closeNow(folly::none);
+    quicClient_->closeNow(none);
     constexpr double bytesPerMegabit = 131072;
     LOG(INFO) << "Received " << receivedBytes_ << " bytes in "
               << duration_.count() << " seconds.";
@@ -898,6 +919,21 @@ class TPerfClient : public quic::QuicSocket::ConnectionSetupCallback,
       settings.maxBatchSize = 1;
       settings.dataPathType = DataPathType::ContinuousMemory;
     }
+    if (FLAGS_use_l4s_ecn) {
+      settings.enableEcnOnEgress = true;
+      settings.useL4sEcn = true;
+      settings.minBurstPackets = 1;
+      settings.experimentalPacer = true;
+      settings.ccaConfig.onlyGrowCwndWhenLimited = true;
+      settings.ccaConfig.leaveHeadroomForCwndLimited = true;
+    }
+
+    if (FLAGS_read_ecn) {
+      settings.readEcnOnIngress = FLAGS_read_ecn;
+      settings.shouldRecvBatch = false;
+    }
+    settings.dscpValue = FLAGS_dscp;
+
     quicClient_->setTransportSettings(settings);
 
     LOG(INFO) << "TPerfClient connecting to " << addr.describe();

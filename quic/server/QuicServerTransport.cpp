@@ -15,7 +15,7 @@
 #include <quic/server/handshake/StatelessResetGenerator.h>
 #include <quic/state/TransportSettingsFunctions.h>
 
-#include <folly/Optional.h>
+#include <quic/common/Optional.h>
 #include <quic/common/TransportKnobs.h>
 #include <algorithm>
 #include <chrono>
@@ -365,11 +365,14 @@ void QuicServerTransport::unbindConnection() {
     routingCb_ = nullptr;
     CHECK(conn_->clientChosenDestConnectionId);
     if (conn_->serverConnectionId) {
+      auto connectionIds =
+          conn_->selfConnectionIds; // We pass a copy as this transport might be
+                                    // deleted.
       routingCb->onConnectionUnbound(
           this,
           std::make_pair(
               getOriginalPeerAddress(), *conn_->clientChosenDestConnectionId),
-          conn_->selfConnectionIds);
+          connectionIds);
     }
   }
 }
@@ -534,7 +537,7 @@ void QuicServerTransport::maybeWriteNewSessionTicket() {
       conn_->qLogger->addTransportStateUpdate(kWriteNst);
     }
     newSessionTicketWrittenTimestamp_ = Clock::now();
-    folly::Optional<uint64_t> cwndHint = folly::none;
+    Optional<uint64_t> cwndHint = none;
     if (conn_->transportSettings.includeCwndHintsInSessionTicket &&
         conn_->congestionController) {
       VLOG(7) << "Writing a new session ticket with cwnd="
@@ -1195,7 +1198,7 @@ void QuicServerTransport::logTimeBasedStats() const {
   }
 }
 
-folly::Optional<std::vector<TransportParameter>>
+Optional<std::vector<TransportParameter>>
 QuicServerTransport::getPeerTransportParams() const {
   if (serverConn_ && serverConn_->serverHandshakeLayer) {
     auto maybeParams =
@@ -1204,7 +1207,7 @@ QuicServerTransport::getPeerTransportParams() const {
       return maybeParams->parameters;
     }
   }
-  return folly::none;
+  return none;
 }
 
 void QuicServerTransport::setCongestionControl(CongestionControlType type) {

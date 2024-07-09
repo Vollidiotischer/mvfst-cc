@@ -6,6 +6,7 @@
  */
 
 #include <folly/MapUtil.h>
+#include <folly/tracing/StaticTracepoint.h>
 #include <quic/loss/QuicLossFunctions.h>
 #include <quic/state/AckHandlers.h>
 #include <quic/state/QuicStateFunctions.h>
@@ -82,6 +83,8 @@ void removeOutstandingsForAck(
       if (currentPacketNum < ackBlockIt->startPacket) {
         break;
       }
+      CHECK(rPacketIt->metadata.scheduledForDestruction);
+      CHECK_GT(conn.outstandings.scheduledForDestructionCount, 0);
       conn.outstandings.scheduledForDestructionCount--;
       rPacketIt++;
     }
@@ -136,6 +139,11 @@ AckEvent processAckFrame(
                      frame.ecnECT0Count, frame.ecnECT1Count, frame.ecnCECount)
                  .build();
 
+  FOLLY_SDT(
+      quic,
+      process_ack_frame_num_outstanding,
+      conn.outstandings.numOutstanding());
+
   // temporary storage to enable packets to be processed in sent order
   SmallVec<OutstandingPacketWithHandlerContext, 50> packetsWithHandlerContext;
 
@@ -148,17 +156,24 @@ AckEvent processAckFrame(
   // Store first outstanding packet number to ignore old receive timestamps.
   const auto& firstOutstandingPacket =
       getFirstOutstandingPacket(conn, PacketNumberSpace::AppData);
-  folly::Optional<PacketNum> firstPacketNum =
+  Optional<PacketNum> firstPacketNum =
       (firstOutstandingPacket != conn.outstandings.packets.end())
       ? folly::make_optional(firstOutstandingPacket->getPacketSequenceNum())
-      : folly::none;
+      : none;
 
   uint64_t dsrPacketsAcked = 0;
-  folly::Optional<decltype(conn.lossState.lastAckedPacketSentTime)>
+  Optional<decltype(conn.lossState.lastAckedPacketSentTime)>
       lastAckedPacketSentTime;
-  folly::Optional<LegacyObserver::SpuriousLossEvent> spuriousLossEvent;
+  Optional<LegacyObserver::SpuriousLossEvent> spuriousLossEvent;
   // Used for debug only.
   const auto originalPacketCount = conn.outstandings.packetCount;
+  const auto originalNumOutstanding = conn.outstandings.numOutstanding();
+  SCOPE_EXIT {
+    FOLLY_SDT(
+        quic,
+        process_ack_frame_num_erased,
+        originalNumOutstanding - conn.outstandings.numOutstanding());
+  };
   {
     const auto socketObserverContainer = conn.getSocketObserverContainer();
     if (socketObserverContainer &&
@@ -210,16 +225,14 @@ AckEvent processAckFrame(
       rPacketIt->metadata.scheduledForDestruction = true;
       conn.outstandings.scheduledForDestructionCount++;
       VLOG(10) << __func__ << " acked packetNum=" << currentPacketNum
-               << " space=" << currentPacketNumberSpace << " handshake="
-               << (int)((rPacketIt->metadata.isHandshake) ? 1 : 0) << " "
-               << conn;
+               << " space=" << currentPacketNumberSpace << conn;
       // If we hit a packet which has been lost we need to count the spurious
       // loss and ignore all other processing.
       if (rPacketIt->declaredLost) {
         CHECK_GT(conn.outstandings.declaredLostCount, 0);
         conn.lossState.totalPacketsSpuriouslyMarkedLost++;
         if (conn.transportSettings.useAdaptiveLossReorderingThresholds) {
-          if (rPacketIt->metadata.lossReorderDistance.hasValue() &&
+          if (rPacketIt->metadata.lossReorderDistance.has_value() &&
               rPacketIt->metadata.lossReorderDistance.value() >
                   conn.lossState.reorderingThreshold) {
             conn.lossState.reorderingThreshold =
@@ -227,7 +240,7 @@ AckEvent processAckFrame(
           }
         }
         if (conn.transportSettings.useAdaptiveLossTimeThresholds) {
-          if (rPacketIt->metadata.lossTimeoutDividend.hasValue() &&
+          if (rPacketIt->metadata.lossTimeoutDividend.has_value() &&
               rPacketIt->metadata.lossTimeoutDividend.value() >
                   conn.transportSettings.timeReorderingThreshDividend) {
             conn.transportSettings.timeReorderingThreshDividend =
@@ -322,10 +335,9 @@ AckEvent processAckFrame(
           CHECK(!ack.rttSampleNoAckDelay.has_value());
           ack.rttSample = rttSample;
           ack.rttSampleNoAckDelay = (rttSample >= frame.ackDelay)
-              ? folly::make_optional(
-                    std::chrono::ceil<std::chrono::microseconds>(
-                        rttSample - frame.ackDelay))
-              : folly::none;
+              ? OptionalMicros(std::chrono::ceil<std::chrono::microseconds>(
+                    rttSample - frame.ackDelay))
+              : std::nullopt;
 
           // update transport RTT
           updateRtt(conn, rttSample, frame.ackDelay);
@@ -427,15 +439,15 @@ AckEvent processAckFrame(
       // Part 1: Record delivery offset prior to running ackVisitor.
       struct PreAckVisitorState {
         const uint64_t ackIntervalSetVersion;
-        const folly::Optional<uint64_t> maybeLargestDeliverableOffset;
+        const Optional<uint64_t> maybeLargestDeliverableOffset;
       };
       QuicStreamState* maybeAckedStreamState = nullptr;
       const auto maybePreAckVisitorState =
           [&conn, &maybeAckedStreamState](
-              const auto& packetFrame) -> folly::Optional<PreAckVisitorState> {
+              const auto& packetFrame) -> Optional<PreAckVisitorState> {
         // check if it's a WriteStreamFrame being ACKed
         if (packetFrame.type() != QuicWriteFrame::Type::WriteStreamFrame) {
-          return folly::none;
+          return none;
         }
 
         // check if the stream is alive (could be ACK for dead stream)
@@ -443,7 +455,7 @@ AckEvent processAckFrame(
         maybeAckedStreamState =
             conn.streamManager->findStream(ackedFrame.streamId);
         if (!maybeAckedStreamState) {
-          return folly::none;
+          return none;
         }
 
         // stream is alive and frame is WriteStreamFrame
@@ -496,9 +508,9 @@ AckEvent processAckFrame(
             .setAppLimited(outstandingPacket->isAppLimited)
             .setReceiveDeltaTimeStamp(
                 maybeRxTimestamp != packetReceiveTimeStamps.end()
-                    ? folly::make_optional(
+                    ? OptionalMicros(
                           std::chrono::microseconds(maybeRxTimestamp->second))
-                    : folly::none)
+                    : std::nullopt)
             .build());
   }
   if (lastAckedPacketSentTime) {
@@ -538,8 +550,8 @@ AckEvent processAckFrame(
       // congestion period. Alternatively we could consider every lost block
       // and check if any of them constitute persistent congestion.
       lossEvent->persistentCongestion = isPersistentCongestion(
-          conn.lossState.srtt == 0s ? folly::none
-                                    : folly::Optional(calculatePTO(conn)),
+          conn.lossState.srtt == 0s ? std::nullopt
+                                    : OptionalMicros(calculatePTO(conn)),
           *lossEvent->smallestLostSentTime,
           *lossEvent->largestLostSentTime,
           ack);
@@ -619,7 +631,7 @@ void parseAckReceiveTimestamps(
     const QuicConnectionStateBase& conn,
     const quic::ReadAckFrame& frame,
     folly::F14FastMap<PacketNum, uint64_t>& packetReceiveTimeStamps,
-    folly::Optional<PacketNum> firstPacketNum) {
+    Optional<PacketNum> firstPacketNum) {
   if (frame.frameType != FrameType::ACK_RECEIVE_TIMESTAMPS) {
     return;
   }

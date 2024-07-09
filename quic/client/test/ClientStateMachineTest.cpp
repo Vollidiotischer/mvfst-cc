@@ -33,6 +33,9 @@ constexpr auto initialMaxStreamDataUni = kDefaultStreamFlowControlWindow + 5;
 constexpr auto initialMaxStreamsBidi = kDefaultMaxStreamsBidirectional + 6;
 constexpr auto initialMaxStreamsUni = kDefaultMaxStreamsUnidirectional + 7;
 constexpr auto knobFrameSupport = true;
+constexpr auto ackReceiveTimestampsEnabled = true;
+constexpr auto maxReceiveTimestampsPerAck = 10;
+constexpr auto ackReceiveTimestampsExponent = 0;
 const CachedServerTransportParameters kParams{
     std::chrono::milliseconds(idleTimeout).count(),
     maxRecvPacketSize,
@@ -42,7 +45,10 @@ const CachedServerTransportParameters kParams{
     initialMaxStreamDataUni,
     initialMaxStreamsBidi,
     initialMaxStreamsUni,
-    knobFrameSupport};
+    maxReceiveTimestampsPerAck,
+    ackReceiveTimestampsExponent,
+    knobFrameSupport,
+    ackReceiveTimestampsEnabled};
 } // namespace
 
 class ClientStateMachineTest : public Test {
@@ -73,6 +79,8 @@ TEST_F(ClientStateMachineTest, TestUpdateTransportParamsNotIgnorePathMTU) {
 TEST_F(ClientStateMachineTest, TestUpdateTransportParamsFromCachedEarlyParams) {
   client_->transportSettings.canIgnorePathMTU = true;
   client_->peerAdvertisedKnobFrameSupport = false;
+  client_->maybePeerAckReceiveTimestampsConfig.assign(
+      {.maxReceiveTimestampsPerAck = 10, .receiveTimestampsExponent = 0});
 
   updateTransportParamsFromCachedEarlyParams(*client_, kParams);
   EXPECT_EQ(client_->peerIdleTimeout, idleTimeout);
@@ -88,6 +96,15 @@ TEST_F(ClientStateMachineTest, TestUpdateTransportParamsFromCachedEarlyParams) {
       client_->flowControlState.peerAdvertisedInitialMaxStreamOffsetUni,
       initialMaxStreamDataUni);
   EXPECT_EQ(client_->peerAdvertisedKnobFrameSupport, knobFrameSupport);
+  ASSERT_TRUE(client_->maybePeerAckReceiveTimestampsConfig.has_value());
+  EXPECT_EQ(
+      client_->maybePeerAckReceiveTimestampsConfig.value()
+          .maxReceiveTimestampsPerAck,
+      maxReceiveTimestampsPerAck);
+  EXPECT_EQ(
+      client_->maybePeerAckReceiveTimestampsConfig.value()
+          .receiveTimestampsExponent,
+      ackReceiveTimestampsExponent);
 
   for (unsigned long i = 0; i < initialMaxStreamsBidi; i++) {
     EXPECT_TRUE(
@@ -220,7 +237,7 @@ TEST_F(ClientStateMachineTest, TestProcessKnobFramesSupportedParamDisabled) {
 
 struct maxStreamGroupsAdvertizedtestStruct {
   uint64_t peerMaxGroupsIn;
-  folly::Optional<uint64_t> expectedTransportSettingVal;
+  OptionalIntegral<uint64_t> expectedTransportSettingVal;
 };
 class ClientStateMachineMaxStreamGroupsAdvertizedParamTest
     : public ClientStateMachineTest,
@@ -252,7 +269,7 @@ INSTANTIATE_TEST_SUITE_P(
     ClientStateMachineMaxStreamGroupsAdvertizedParamTest,
     ClientStateMachineMaxStreamGroupsAdvertizedParamTest,
     ::testing::Values(
-        maxStreamGroupsAdvertizedtestStruct{0, folly::none},
+        maxStreamGroupsAdvertizedtestStruct{0, std::nullopt},
         maxStreamGroupsAdvertizedtestStruct{16, 16}));
 
 } // namespace quic::test

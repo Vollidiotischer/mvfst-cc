@@ -71,11 +71,11 @@ RegularQuicPacketBuilder::Packet AckPacketBuilder::build() && {
                  CHECK_NOTNULL(dstConn)->clientConnectionId.get_pointer())
            : *CHECK_NOTNULL(
                  CHECK_NOTNULL(dstConn)->serverConnectionId.get_pointer()));
-  folly::Optional<PacketHeader> header;
+  Optional<PacketHeader> header;
 
   const auto ackPnSpace = *CHECK_NOTNULL(maybePnSpace.get_pointer());
   const auto ackPacketNum = [this, &ackPnSpace]() {
-    folly::Optional<quic::PacketNum> maybeAckPacketNum;
+    Optional<quic::PacketNum> maybeAckPacketNum;
     if (this->ackPacketNumStore) {
       CHECK(!maybeAckPacketNum.has_value());
       auto& ackPacketNumStore = *this->ackPacketNumStore;
@@ -141,7 +141,7 @@ RegularQuicPacketBuilder::Packet AckPacketBuilder::build() && {
   ackState.acks = *CHECK_NOTNULL(maybeAckBlocks.get_pointer());
   WriteAckFrameMetaData ackData = {
       ackState,
-      *CHECK_NOTNULL(maybeAckDelay.get_pointer()),
+      maybeAckDelay.value(),
       static_cast<uint8_t>(
           CHECK_NOTNULL(dstConn)->transportSettings.ackDelayExponent),
       TimePoint()};
@@ -170,12 +170,6 @@ OutstandingPacketBuilder&& OutstandingPacketBuilder::setEncodedSize(
 OutstandingPacketBuilder&& OutstandingPacketBuilder::setEncodedBodySize(
     const uint32_t& encodedBodySizeIn) {
   maybeEncodedBodySize = encodedBodySizeIn;
-  return std::move(*this);
-}
-
-OutstandingPacketBuilder&& OutstandingPacketBuilder::setIsHandshake(
-    const bool& isHandshakeIn) {
-  maybeIsHandshake = isHandshakeIn;
   return std::move(*this);
 }
 
@@ -235,14 +229,13 @@ OutstandingPacketWrapper OutstandingPacketBuilder::build() && {
       *CHECK_NOTNULL(maybeTime.get_pointer()),
       *CHECK_NOTNULL(maybeEncodedSize.get_pointer()),
       *CHECK_NOTNULL(maybeEncodedBodySize.get_pointer()),
-      *CHECK_NOTNULL(maybeIsHandshake.get_pointer()),
       *CHECK_NOTNULL(maybeTotalBytesSent.get_pointer()),
       *CHECK_NOTNULL(maybeInflightBytes.get_pointer()),
       CHECK_NOTNULL(maybeLossState.get_pointer())->get(),
       *CHECK_NOTNULL(maybeWriteCount.get_pointer()),
       OutstandingPacketWrapper::Metadata::DetailsPerStream(
           *CHECK_NOTNULL(maybeDetailsPerStream.get_pointer())),
-      *CHECK_NOTNULL(maybeTotalAppLimitedTimeUsecs.get_pointer())};
+      maybeTotalAppLimitedTimeUsecs.value()};
 }
 
 } // namespace quic::test

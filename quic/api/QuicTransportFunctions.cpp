@@ -5,6 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <folly/tracing/StaticTracepoint.h>
 #include <quic/QuicConstants.h>
 #include <quic/QuicException.h>
 #include <quic/api/QuicBatchWriterFactory.h>
@@ -39,8 +40,7 @@ bool cryptoHasWritableData(const quic::QuicConnectionStateBase& conn) {
         !conn.cryptoState->oneRttStream.lossBuffer.empty()));
 }
 
-std::string optionalToString(
-    const folly::Optional<quic::PacketNum>& packetNum) {
+std::string optionalToString(const quic::Optional<quic::PacketNum>& packetNum) {
   if (!packetNum) {
     return "-";
   }
@@ -54,12 +54,12 @@ std::string largestAckScheduledToString(
       optionalToString(
           conn.ackStates.initialAckState
               ? conn.ackStates.initialAckState->largestAckScheduled
-              : folly::none),
+              : quic::none),
       ",",
       optionalToString(
           conn.ackStates.handshakeAckState
               ? conn.ackStates.handshakeAckState->largestAckScheduled
-              : folly::none),
+              : quic::none),
       ",",
       optionalToString(conn.ackStates.appDataAckState.largestAckScheduled),
       "]");
@@ -72,12 +72,12 @@ std::string largestAckToSendToString(
       optionalToString(
           conn.ackStates.initialAckState
               ? largestAckToSend(*conn.ackStates.initialAckState)
-              : folly::none),
+              : quic::none),
       ",",
       optionalToString(
           conn.ackStates.handshakeAckState
               ? largestAckToSend(*conn.ackStates.handshakeAckState)
-              : folly::none),
+              : quic::none),
       ",",
       optionalToString(largestAckToSend(conn.ackStates.appDataAckState)),
       "]");
@@ -614,7 +614,7 @@ bool handleStreamBufMetaWritten(
 
 void updateConnection(
     QuicConnectionStateBase& conn,
-    folly::Optional<PacketEvent> packetEvent,
+    Optional<PacketEvent> packetEvent,
     RegularQuicWritePacket packet,
     TimePoint sentTime,
     uint32_t encodedSize,
@@ -623,7 +623,6 @@ void updateConnection(
   auto packetNum = packet.header.getPacketSequenceNum();
   // AckFrame, PaddingFrame and Datagrams are not retx-able.
   bool retransmittable = false;
-  bool isHandshake = false;
   bool isPing = false;
   uint32_t connWindowUpdateSent = 0;
   uint32_t ackFrameCounter = 0;
@@ -638,6 +637,7 @@ void updateConnection(
   if (conn.qLogger) {
     conn.qLogger->addPacket(packet, encodedSize);
   }
+  FOLLY_SDT(quic, update_connection_num_frames, packet.frames.size());
   for (const auto& frame : packet.frames) {
     switch (frame.type()) {
       case QuicWriteFrame::Type::WriteStreamFrame: {
@@ -683,9 +683,6 @@ void updateConnection(
         auto protectionType = packet.header.getProtectionType();
         // NewSessionTicket is sent in crypto frame encrypted with 1-rtt key,
         // however, it is not part of handshake
-        isHandshake =
-            (protectionType == ProtectionType::Initial ||
-             protectionType == ProtectionType::Handshake);
         auto encryptionLevel = protectionTypeToEncryptionLevel(protectionType);
         handleStreamWritten(
             conn,
@@ -877,7 +874,6 @@ void updateConnection(
       sentTime,
       encodedSize,
       encodedBodySize,
-      isHandshake,
       // these numbers should all _include_ the current packet
       // conn.lossState.inflightBytes isn't updated until below
       // conn.outstandings.numOutstanding() + 1 since we're emplacing here
@@ -889,7 +885,7 @@ void updateConnection(
       conn.appLimitedTracker.getTotalAppLimitedTime(),
       std::move(packetDestroyFn));
 
-  pkt.metadata.cmsgs = conn.socketCmsgsState.additionalCmsgs;
+  maybeAddPacketMark(conn, pkt);
 
   pkt.isAppLimited = conn.congestionController
       ? conn.congestionController->isAppLimited()
@@ -1203,7 +1199,7 @@ void writeCloseCommon(
     QuicAsyncUDPSocket& sock,
     QuicConnectionStateBase& connection,
     PacketHeader&& header,
-    folly::Optional<QuicError> closeDetails,
+    Optional<QuicError> closeDetails,
     const Aead& aead,
     const PacketNumberCipher& headerCipher) {
   // close is special, we're going to bypass all the packet sent logic for all
@@ -1308,7 +1304,7 @@ void writeLongClose(
     const ConnectionId& srcConnId,
     const ConnectionId& dstConnId,
     LongHeader::Types headerType,
-    folly::Optional<QuicError> closeDetails,
+    Optional<QuicError> closeDetails,
     const Aead& aead,
     const PacketNumberCipher& headerCipher,
     QuicVersion version) {
@@ -1337,7 +1333,7 @@ void writeShortClose(
     QuicAsyncUDPSocket& sock,
     QuicConnectionStateBase& connection,
     const ConnectionId& connId,
-    folly::Optional<QuicError> closeDetails,
+    Optional<QuicError> closeDetails,
     const Aead& aead,
     const PacketNumberCipher& headerCipher) {
   auto header = ShortHeader(
@@ -1476,7 +1472,7 @@ WriteQuicDataResult writeConnectionDataToSocket(
            << " writing data using scheduler=" << scheduler.name() << " "
            << connection;
 
-  if (!connection.gsoSupported.hasValue()) {
+  if (!connection.gsoSupported.has_value()) {
     connection.gsoSupported = sock.getGSO() >= 0;
     if (!*connection.gsoSupported) {
       if (!useSinglePacketInplaceBatchWriter(
@@ -1994,7 +1990,7 @@ void maybeInitiateKeyUpdate(QuicConnectionStateBase& conn) {
         conn.readCodec->canInitiateKeyUpdate()) {
       QUIC_STATS(conn.statsCallback, onKeyUpdateAttemptInitiated);
       conn.readCodec->advanceOneRttReadPhase();
-      conn.transportSettings.firstKeyUpdatePacketCount.clear();
+      conn.transportSettings.firstKeyUpdatePacketCount.reset();
 
       updateOneRttWriteCipher(
           conn,
@@ -2004,7 +2000,7 @@ void maybeInitiateKeyUpdate(QuicConnectionStateBase& conn) {
           conn.handshakeLayer->getNextOneRttReadCipher());
       // Signal the transport that a key update has been initiated.
       conn.oneRttWritePendingVerification = true;
-      conn.oneRttWritePendingVerificationPacketNumber.clear();
+      conn.oneRttWritePendingVerificationPacketNumber.reset();
     }
   }
 }
@@ -2027,13 +2023,55 @@ void maybeVerifyPendingKeyUpdate(
     // the current phase.
     if (ackPacket.header.getProtectionType() == conn.oneRttWritePhase) {
       // Key update is verified.
-      conn.oneRttWritePendingVerificationPacketNumber.clear();
+      conn.oneRttWritePendingVerificationPacketNumber.reset();
       conn.oneRttWritePendingVerification = false;
     } else {
       throw QuicTransportException(
           "Packet with key update was acked in the wrong phase",
           TransportErrorCode::CRYPTO_ERROR);
     }
+  }
+}
+
+// Unfortunate, we should make this more portable.
+#if !defined IPV6_HOPLIMIT
+#define IPV6_HOPLIMIT -1
+#endif
+#if !defined IP_TTL
+#define IP_TTL -1
+#endif
+// Add a packet mark to the outstanding packet. Currently only supports
+// TTLD marking.
+void maybeAddPacketMark(
+    QuicConnectionStateBase& conn,
+    OutstandingPacketWrapper& op) {
+  static constexpr folly::SocketOptionKey kHopLimitOptionKey = {
+      IPPROTO_IPV6, IPV6_HOPLIMIT};
+  static constexpr folly::SocketOptionKey kTTLOptionKey = {IPPROTO_IP, IP_TTL};
+  if (!conn.socketCmsgsState.additionalCmsgs.has_value()) {
+    return;
+  }
+  const auto& cmsgs = conn.socketCmsgsState.additionalCmsgs;
+  auto it = cmsgs->find(kHopLimitOptionKey);
+  if (it != cmsgs->end() && it->second == 255) {
+    op.metadata.mark = OutstandingPacketMark::TTLD;
+    return;
+  }
+  it = cmsgs->find(kTTLOptionKey);
+  if (it != cmsgs->end() && it->second == 255) {
+    op.metadata.mark = OutstandingPacketMark::TTLD;
+  }
+}
+
+void maybeScheduleAckForCongestionFeedback(
+    const ReceivedUdpPacket& receivedPacket,
+    AckState& ackState) {
+  // If the packet was marked as having encountered congestion, send an ACK
+  // immediately to ensure timely response from the peer.
+  // Note that the tosValue will be populated only if the enableEcnOnEgress
+  // transport setting is enabled.
+  if ((receivedPacket.tosValue & 0b11) == 0b11) {
+    ackState.needsToSendAckImmediately = true;
   }
 }
 

@@ -13,6 +13,7 @@
 #include <folly/system/ThreadId.h>
 #include <quic/QuicConstants.h>
 #include <atomic>
+#include <chrono>
 #include <memory>
 
 #ifdef FOLLY_HAVE_MSG_ERRQUEUE
@@ -237,8 +238,7 @@ bool QuicServerWorker::maybeSendVersionNegotiationPacketOrDrop(
     bool isInitial,
     LongHeaderInvariant& invariant,
     size_t datagramLen) {
-  folly::Optional<std::pair<VersionNegotiationPacket, Buf>>
-      versionNegotiationPacket;
+  Optional<std::pair<VersionNegotiationPacket, Buf>> versionNegotiationPacket;
   if (isInitial && datagramLen < kMinInitialPacketSize) {
     VLOG(3) << "Dropping initial packet due to invalid size";
     QUIC_STATS(
@@ -309,14 +309,19 @@ void QuicServerWorker::onDataAvailable(
   auto originalPacketReceiveTime = packetReceiveTime;
   if (params.ts) {
     // This is the software system time from the datagram.
-    auto packetNowDuration =
+    auto packetRxEpochUs =
         folly::to<std::chrono::microseconds>(params.ts.value()[0]);
-    auto wallNowDuration =
-        std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::system_clock::now().time_since_epoch());
-    auto durationSincePacketNow = wallNowDuration - packetNowDuration;
-    if (packetNowDuration != 0us && durationSincePacketNow > 0us) {
-      packetReceiveTime -= durationSincePacketNow;
+    if (packetRxEpochUs != 0us) {
+      auto now = std::chrono::system_clock::now();
+      auto nowEpochUs = std::chrono::duration_cast<std::chrono::microseconds>(
+          now.time_since_epoch());
+      auto rxDelayUs = nowEpochUs - packetRxEpochUs;
+      if (rxDelayUs >= 0us) {
+        packetReceiveTime -= rxDelayUs;
+        QUIC_STATS(statsCallback_, onRxDelaySample, rxDelayUs.count());
+      } else {
+        VLOG(10) << "Negative rx delay: " << rxDelayUs.count() << "us";
+      }
     }
   }
   // System time can move backwards, so we want to make sure that the receive
@@ -436,12 +441,12 @@ void QuicServerWorker::handleNetworkData(
             false, /* isInitial */
             false, /* is0Rtt */
             std::move(maybeParsedShortHeader->destinationConnId),
-            folly::none);
+            none);
         return forwardNetworkData(
             client,
             std::move(routingData),
             NetworkData(std::move(udpPacket)),
-            folly::none, /* quicVersion */
+            none, /* quicVersion */
             isForwardedData);
       }
     } else if (
@@ -593,7 +598,7 @@ void QuicServerWorker::forwardNetworkData(
     const folly::SocketAddress& client,
     RoutingData&& routingData,
     NetworkData&& networkData,
-    folly::Optional<QuicVersion> quicVersion,
+    Optional<QuicVersion> quicVersion,
     bool isForwardedData) {
   // if it's not Client initial or ZeroRtt, AND if the connectionId version
   // mismatches: forward if pktForwarding is enabled else dropPacket
@@ -636,7 +641,7 @@ void QuicServerWorker::setPacingTimer(
 QuicServerTransport::Ptr QuicServerWorker::makeTransport(
     QuicVersion quicVersion,
     const folly::SocketAddress& client,
-    const folly::Optional<ConnectionId>& srcConnId,
+    const Optional<ConnectionId>& srcConnId,
     const ConnectionId& dstConnId,
     bool validNewToken) {
   // create 'accepting' transport
@@ -660,11 +665,6 @@ QuicServerTransport::Ptr QuicServerWorker::makeTransport(
     }
     trans->setCongestionControllerFactory(ccFactory_);
     trans->setTransportStatsCallback(statsCallback_.get()); // ok if nullptr
-    if (quicVersion == QuicVersion::MVFST_EXPERIMENTAL3) {
-      // Use twice the default pacing gain to make BBRv2's startup behavior
-      // similar to BBRv1's.
-      transportSettings_.ccaConfig.overrideStartupPacingGain = 2 * 2.89;
-    }
 
     auto transportSettings = transportSettingsOverrideFn_
         ? transportSettingsOverrideFn_(
@@ -753,7 +753,7 @@ void QuicServerWorker::dispatchPacketData(
     const folly::SocketAddress& client,
     RoutingData&& routingData,
     NetworkData&& networkData,
-    folly::Optional<QuicVersion> quicVersion,
+    Optional<QuicVersion> quicVersion,
     bool isForwardedData) noexcept {
   DCHECK(socket_);
   CHECK(transportFactory_);
@@ -991,23 +991,23 @@ void QuicServerWorker::sendResetPacket(
   QUIC_STATS(statsCallback_, onStatelessReset);
 }
 
-folly::Optional<std::string> QuicServerWorker::maybeGetEncryptedToken(
+Optional<std::string> QuicServerWorker::maybeGetEncryptedToken(
     folly::io::Cursor& cursor) {
   // Move cursor to the byte right after the initial byte
   if (!cursor.canAdvance(1)) {
-    return folly::none;
+    return none;
   }
   auto initialByte = cursor.readBE<uint8_t>();
 
   // We already know this is an initial packet, which uses a long header
   auto parsedLongHeader = parseLongHeader(initialByte, cursor);
   if (!parsedLongHeader || !parsedLongHeader->parsedLongHeader.has_value()) {
-    return folly::none;
+    return none;
   }
 
   auto header = parsedLongHeader->parsedLongHeader.value().header;
   if (!header.hasToken()) {
-    return folly::none;
+    return none;
   }
   return header.getToken();
 }
@@ -1083,8 +1083,7 @@ void QuicServerWorker::sendRetryPacket(
   auto encryptedToken = generator.encryptToken(retryToken);
 
   CHECK(encryptedToken.has_value());
-  std::string encryptedTokenStr =
-      encryptedToken.value()->moveToFbString().toStdString();
+  std::string encryptedTokenStr = encryptedToken.value()->to<std::string>();
 
   // Create the integrity tag
   // For the tag to be correctly validated by the client, the initalByte
@@ -1556,17 +1555,20 @@ size_t QuicServerWorker::SourceIdentityHash::operator()(
   // Zero initialization is intentional here.
   std::array<unsigned char, kKeySize> key{};
 
-  struct sockaddr_storage* storage =
-      reinterpret_cast<struct sockaddr_storage*>(key.data());
+  struct sockaddr_storage storage {};
   const auto& sockaddr = sid.first;
-  sockaddr.getAddress(storage);
+  sockaddr.getAddress(&storage);
+  memcpy(key.data(), &storage, sizeof(struct sockaddr_storage));
 
   unsigned char* connid = key.data() + sizeof(struct sockaddr_storage);
   memcpy(connid, sid.second.data(), sid.second.size());
 
-  uint16_t* port = reinterpret_cast<uint16_t*>(
-      key.data() + sizeof(struct sockaddr_storage) + kMaxConnectionIdSize);
-  *port = sid.first.getPort();
+  uint16_t port;
+  port = sid.first.getPort();
+  memcpy(
+      key.data() + sizeof(struct sockaddr_storage) + kMaxConnectionIdSize,
+      &port,
+      sizeof(uint16_t));
 
   return siphash::siphash24(key.data(), key.size(), &hashKey);
 }

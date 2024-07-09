@@ -331,7 +331,7 @@ void Cubic::onPacketAckOrLoss(
     const AckEvent* FOLLY_NULLABLE ackEvent,
     const LossEvent* FOLLY_NULLABLE lossEvent) {
   // TODO: current code in detectLossPackets only gives back a loss event when
-  // largestLostPacketNum isn't a folly::none. But we should probably also check
+  // largestLostPacketNum isn't a none. But we should probably also check
   // against it here anyway just in case the loss code is changed in the
   // future.
   if (lossEvent) {
@@ -453,7 +453,7 @@ void Cubic::onPacketAckedInHystart(const AckEvent& ack) {
       conn_.transportSettings.maxCwndInMss,
       conn_.transportSettings.minCwndInMss);
 
-  folly::Optional<Cubic::ExitReason> exitReason;
+  Optional<Cubic::ExitReason> exitReason;
   SCOPE_EXIT {
     if (hystartState_.found != Cubic::HystartFound::No &&
         cwndBytes_ >= kLowSsthreshInMss * conn_.udpSendPacketLen) {
@@ -714,14 +714,20 @@ void Cubic::onEcnCongestionEvent(const AckEvent& ack) {
           conn_.transportSettings.ccaConfig.l4sCETarget) {
     if (ack.largestNewlyAckedPacketSentTime > l4sCwndReducedTimestamp_) {
       CHECK(conn_.ecnL4sTracker);
-      auto distanceToTarget = conn_.ecnL4sTracker->getL4sWeight() -
+      auto distanceToTarget = conn_.ecnL4sTracker->getNormalizedL4sWeight() -
           conn_.transportSettings.ccaConfig.l4sCETarget;
       ssthresh_ = (1.0 - distanceToTarget / 2) * cwndBytes_;
-      cubicReduction(ack.ackTime);
+
+      steadyState_.lastReductionTime = ack.ackTime;
+      steadyState_.timeToOrigin = 0.0;
+      steadyState_.lastMaxCwndBytes = ssthresh_;
+      steadyState_.originPoint = ssthresh_;
+      steadyState_.estRenoCwnd = ssthresh_;
+      cwndBytes_ = ssthresh_;
       l4sCwndReducedTimestamp_ = ack.ackTime;
     }
-    lastCECount_ = ack.ecnCECount;
   }
+  lastCECount_ = ack.ecnCECount;
 }
 
 void Cubic::getStats(CongestionControllerStats& stats) const {

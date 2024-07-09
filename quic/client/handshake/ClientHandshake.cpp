@@ -18,11 +18,11 @@ ClientHandshake::ClientHandshake(QuicClientConnectionState* conn)
     : conn_(conn) {}
 
 void ClientHandshake::connect(
-    folly::Optional<std::string> hostname,
+    Optional<std::string> hostname,
     std::shared_ptr<ClientTransportParametersExtension> transportParams) {
   transportParams_ = std::move(transportParams);
 
-  folly::Optional<CachedServerTransportParameters> cachedServerTransportParams =
+  Optional<CachedServerTransportParameters> cachedServerTransportParams =
       connectImpl(std::move(hostname));
 
   throwOnError();
@@ -42,7 +42,10 @@ void ClientHandshake::connect(
         cachedServerTransportParams->initialMaxStreamDataUni,
         cachedServerTransportParams->initialMaxStreamsBidi,
         cachedServerTransportParams->initialMaxStreamsUni,
-        cachedServerTransportParams->knobFrameSupport);
+        cachedServerTransportParams->knobFrameSupport,
+        cachedServerTransportParams->ackReceiveTimestampsEnabled,
+        cachedServerTransportParams->maxReceiveTimestampsPerAck,
+        cachedServerTransportParams->receiveTimestampsExponent);
     updateTransportParamsFromCachedEarlyParams(
         *conn_, *cachedServerTransportParams);
   }
@@ -109,16 +112,16 @@ ClientHandshake::Phase ClientHandshake::getPhase() const {
   return phase_;
 }
 
-const folly::Optional<ServerTransportParameters>&
+const Optional<ServerTransportParameters>&
 ClientHandshake::getServerTransportParams() {
   return transportParams_->getServerTransportParams();
 }
 
-folly::Optional<bool> ClientHandshake::getZeroRttRejected() {
+Optional<bool> ClientHandshake::getZeroRttRejected() {
   return zeroRttRejected_;
 }
 
-folly::Optional<bool> ClientHandshake::getCanResendZeroRtt() const {
+Optional<bool> ClientHandshake::getCanResendZeroRtt() const {
   return canResendZeroRtt_;
 }
 

@@ -529,7 +529,7 @@ QLogAppLimitedUpdateEvent::QLogAppLimitedUpdateEvent(
 folly::dynamic QLogAppLimitedUpdateEvent::toDynamic() const {
   folly::dynamic d = folly::dynamic::array(
       folly::to<std::string>(refTime.count()),
-      "APP_LIMITED_UPDATE",
+      "app_limited_update",
       toString(eventType));
   folly::dynamic data = folly::dynamic::object();
   data["app_limited"] = limited ? kAppLimited : kAppUnlimited;
@@ -549,7 +549,7 @@ QLogBandwidthEstUpdateEvent::QLogBandwidthEstUpdateEvent(
 folly::dynamic QLogBandwidthEstUpdateEvent::toDynamic() const {
   folly::dynamic d = folly::dynamic::array(
       folly::to<std::string>(refTime.count()),
-      "BANDIWDTH_EST_UPDATE",
+      "bandwidth_est_update",
       toString(eventType));
   folly::dynamic data = folly::dynamic::object();
   data["bandwidth_bytes"] = bytes;
@@ -857,7 +857,7 @@ folly::dynamic QLogMetricUpdateEvent::toDynamic() const {
 QLogStreamStateUpdateEvent::QLogStreamStateUpdateEvent(
     StreamId idIn,
     std::string updateIn,
-    folly::Optional<std::chrono::milliseconds> timeSinceStreamCreationIn,
+    Optional<std::chrono::milliseconds> timeSinceStreamCreationIn,
     VantagePoint vantagePoint,
     std::chrono::microseconds refTimeIn)
     : id{idIn},
@@ -969,6 +969,31 @@ folly::dynamic QLogPriorityUpdateEvent::toDynamic() const {
   return d;
 }
 
+QLogL4sWeightUpdateEvent::QLogL4sWeightUpdateEvent(
+    double l4sWeightIn,
+    uint32_t newECT1EchoedIn,
+    uint32_t newCEEchoedIn,
+    std::chrono::microseconds refTimeIn)
+    : l4sWeight_(l4sWeightIn),
+      newECT1Echoed_(newECT1EchoedIn),
+      newCEEchoed_(newCEEchoedIn) {
+  eventType = QLogEventType::L4sWeightUpdate;
+  refTime = refTimeIn;
+}
+
+folly::dynamic QLogL4sWeightUpdateEvent::toDynamic() const {
+  folly::dynamic d = folly::dynamic::array(
+      folly::to<std::string>(refTime.count()),
+      "metric_update",
+      toString(eventType));
+  folly::dynamic data = folly::dynamic::object();
+  data["weight"] = l4sWeight_;
+  data["new_ect1"] = newECT1Echoed_;
+  data["new_ce"] = newCEEchoed_;
+  d.push_back(std::move(data));
+  return d;
+}
+
 folly::StringPiece toString(QLogEventType type) {
   switch (type) {
     case QLogEventType::PacketSent:
@@ -1015,6 +1040,8 @@ folly::StringPiece toString(QLogEventType type) {
       return "path_validation";
     case QLogEventType::PriorityUpdate:
       return "priority";
+    case QLogEventType::L4sWeightUpdate:
+      return "l4s_weight_update";
   }
   folly::assume_unreachable();
 }

@@ -152,7 +152,7 @@ class QuicServerWorker : public FollyAsyncUDPSocketAlias::ReadCallback,
 
  public:
   using TransportSettingsOverrideFn =
-      std::function<folly::Optional<quic::TransportSettings>(
+      std::function<Optional<quic::TransportSettings>(
           const quic::TransportSettings&,
           const folly::IPAddress&)>;
 
@@ -166,7 +166,7 @@ class QuicServerWorker : public FollyAsyncUDPSocketAlias::ReadCallback,
         const folly::SocketAddress& client,
         RoutingData&& routingData,
         NetworkData&& networkData,
-        folly::Optional<QuicVersion> quicVersion,
+        Optional<QuicVersion> quicVersion,
         folly::EventBase* workerEvb,
         bool isForwardedData) = 0;
   };
@@ -428,7 +428,7 @@ class QuicServerWorker : public FollyAsyncUDPSocketAlias::ReadCallback,
       const folly::SocketAddress& client,
       RoutingData&& routingData,
       NetworkData&& networkData,
-      folly::Optional<QuicVersion> quicVersion,
+      Optional<QuicVersion> quicVersion,
       bool isForwardedData = false) noexcept;
 
   using ConnIdToTransportMap = folly::
@@ -541,8 +541,7 @@ class QuicServerWorker : public FollyAsyncUDPSocketAlias::ReadCallback,
   /**
    * Tries to get the encrypted retry token from a client initial packet
    */
-  folly::Optional<std::string> maybeGetEncryptedToken(
-      folly::io::Cursor& cursor);
+  Optional<std::string> maybeGetEncryptedToken(folly::io::Cursor& cursor);
 
   bool validRetryToken(
       std::string& encryptedToken,
@@ -574,6 +573,10 @@ class QuicServerWorker : public FollyAsyncUDPSocketAlias::ReadCallback,
       const folly::SocketAddress& client,
       LongHeaderInvariant& invariant);
 
+  void recordRxDelay(
+      const std::chrono::system_clock::time_point& currentTime,
+      const timespec& socketRxTime);
+
   /**
    * Helper method to extract and log routing info from the given (dest) connId
    */
@@ -596,14 +599,14 @@ class QuicServerWorker : public FollyAsyncUDPSocketAlias::ReadCallback,
       const folly::SocketAddress& client,
       RoutingData&& routingData,
       NetworkData&& networkData,
-      folly::Optional<QuicVersion> quicVersion,
+      Optional<QuicVersion> quicVersion,
       bool isForwardedData = false);
 
   // Create transport and invoke appropriate setters
   QuicServerTransport::Ptr makeTransport(
       QuicVersion quicVersion,
       const folly::SocketAddress& client,
-      const folly::Optional<ConnectionId>& srcConnId,
+      const Optional<ConnectionId>& srcConnId,
       const ConnectionId& dstConnId,
       bool validNewToken);
 
@@ -649,7 +652,7 @@ class QuicServerWorker : public FollyAsyncUDPSocketAlias::ReadCallback,
   // Same value as transportSettings_.numGROBuffers_ if the kernel
   // supports GRO. otherwise 1
   uint32_t numGROBuffers_{kDefaultNumGROBuffers};
-  folly::Optional<Buf> healthCheckToken_;
+  Optional<Buf> healthCheckToken_;
   std::function<bool()> rejectNewConnections_{[]() { return false; }};
   std::function<bool(uint16_t)> isBlockListedSrcPort_{
       [](uint16_t) { return false; }};
@@ -677,7 +680,7 @@ class QuicServerWorker : public FollyAsyncUDPSocketAlias::ReadCallback,
   // Rate limits the creation of new connections for this worker.
   std::unique_ptr<RateLimiter> newConnRateLimiter_;
 
-  folly::Optional<std::function<int()>> unfinishedHandshakeLimitFn_;
+  Optional<std::function<int()>> unfinishedHandshakeLimitFn_;
 
   // EventRecvmsgCallback data
   std::unique_ptr<MsgHdr> msgHdr_;

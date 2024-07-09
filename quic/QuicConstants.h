@@ -354,7 +354,7 @@ enum class QuicVersion : uint32_t {
   MVFST_ALIAS = 0xfaceb010,
   MVFST_INVALID = 0xfaceb00f,
   MVFST_EXPERIMENTAL2 = 0xfaceb011, // Experimental alias for MVFST
-  // MVFST_EXPERIMENTAL3 is used to apply a 2x pace scaling for BBRv2
+  // MVFST_EXPERIMENTAL3 is used to default to BBRv2 instead of BBRv1.
   MVFST_EXPERIMENTAL3 = 0xfaceb013, // Experimental alias for MVFST
 };
 
@@ -601,9 +601,14 @@ constexpr uint64_t kMaxRetryTokenValidMs = 1000 * 60 * 5;
 constexpr uint64_t kMaxNewTokenValidMs = 1000 * 24 * 60 * 60;
 
 // Default limit on active connection ids that a peer generates.
-constexpr uint64_t kDefaultActiveConnectionIdLimit = 5;
+// If the client doesn't send an active_connection_id_limit transport parameter,
+// this value will be used.
+// The value is defined in
+// https://datatracker.ietf.org/doc/html/rfc9000#section-18.2-6.2.1
+constexpr uint64_t kDefaultActiveConnectionIdLimit = 2;
 
 // Maximum number of active connection ids to generate for the peer.
+// This is also the default value Mvfst will advertise to the peer.
 constexpr uint64_t kMaxActiveConnectionIdLimit = 5;
 
 constexpr uint64_t kMaxPacketNumber = (1ull << 62) - 1;

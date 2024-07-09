@@ -538,7 +538,7 @@ void updateWritableByteLimitOnRecvPacket(QuicServerConnectionState& conn) {
 
 void maybeUpdateTransportFromAppToken(
     QuicServerConnectionState& conn,
-    const folly::Optional<Buf>& tokenBuf) {
+    const Optional<Buf>& tokenBuf) {
   if (!tokenBuf) {
     return;
   }
@@ -1269,7 +1269,7 @@ void onServerReadDataFromOpen(
           break;
         }
         case QuicFrame::Type::ImmediateAckFrame: {
-          if (!conn.transportSettings.minAckDelay.hasValue()) {
+          if (!conn.transportSettings.minAckDelay.has_value()) {
             // We do not accept IMMEDIATE_ACK frames. This is a protocol
             // violation.
             throw QuicTransportException(
@@ -1297,6 +1297,7 @@ void onServerReadDataFromOpen(
       handshakeConfirmed(conn);
     }
 
+    maybeScheduleAckForCongestionFeedback(readData.udpPacket, ackState);
     maybeHandleIncomingKeyUpdate(conn);
 
     // Update writable limit before processing the handshake data. This is so
@@ -1544,7 +1545,7 @@ void onServerCloseOpenState(QuicServerConnectionState& conn) {
   conn.state = ServerState::Closed;
 }
 
-folly::Optional<ConnectionIdData>
+Optional<ConnectionIdData>
 QuicServerConnectionState::createAndAddNewSelfConnId() {
   // Should be set right after server transport construction.
   CHECK(connIdAlgo);
@@ -1568,7 +1569,7 @@ QuicServerConnectionState::createAndAddNewSelfConnId() {
   LOG_IF(ERROR, encodedTimes == kConnIdEncodingRetryLimit)
       << "Quic CIDRejector rejected all conneectionIDs";
   if (encodedCid.hasError()) {
-    return folly::none;
+    return none;
   }
   QUIC_STATS(statsCallback, onConnectionIdCreated, encodedTimes);
   auto newConnIdData =

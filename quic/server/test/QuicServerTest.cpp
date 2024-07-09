@@ -166,7 +166,7 @@ class QuicServerWorkerTest : public Test {
     auto cb = [&](const folly::SocketAddress& addr,
                   std::unique_ptr<RoutingData>& routingData,
                   std::unique_ptr<NetworkData>& networkData,
-                  folly::Optional<QuicVersion> quicVersion,
+                  Optional<QuicVersion> quicVersion,
                   bool isForwardedData) {
       worker_->dispatchPacketData(
           addr,
@@ -342,8 +342,7 @@ void QuicServerWorkerTest::testSendReset(
         auto aead = createNoOpAead();
         // Make the decrypt fail
         EXPECT_CALL(*aead, _tryDecrypt(_, _, _))
-            .WillRepeatedly(
-                Invoke([&](auto&, auto, auto) { return folly::none; }));
+            .WillRepeatedly(Invoke([&](auto&, auto, auto) { return none; }));
         codec.setOneRttReadCipher(std::move(aead));
         codec.setOneRttHeaderCipher(test::createNoOpHeaderCipher());
         StatelessResetToken token = generateStatelessResetToken();
@@ -359,16 +358,12 @@ void QuicServerWorkerTest::testSendReset(
       }));
 
   RoutingData routingData(
-      HeaderForm::Short,
-      false,
-      false,
-      shortHeader.getConnectionId(),
-      folly::none);
+      HeaderForm::Short, false, false, shortHeader.getConnectionId(), none);
   worker_->dispatchPacketData(
       kClientAddr,
       std::move(routingData),
       NetworkData(packet->clone(), Clock::now(), 0),
-      folly::none);
+      none);
   eventbase_.loopIgnoreKeepAlive();
 }
 
@@ -418,12 +413,12 @@ TEST_F(QuicServerWorkerTest, SmallPacketTestNoReset) {
       false,
       false,
       shortHeaderConnId.getConnectionId(),
-      folly::none);
+      none);
   worker_->dispatchPacketData(
       kClientAddr,
       std::move(routingData),
       NetworkData(data->clone(), Clock::now(), 0),
-      folly::none);
+      none);
   eventbase_.loopIgnoreKeepAlive();
 }
 
@@ -515,7 +510,13 @@ TEST_F(QuicServerWorkerTest, RateLimit) {
 }
 
 TEST_F(QuicServerWorkerTest, UnfinishedHandshakeLimit) {
-  worker_->setUnfinishedHandshakeLimit([]() { return 2; });
+  // When running this test with other tests, the global unfinished handshake
+  // count is affected. We need to offset the count appropriately.
+  auto currentUnfinishedHandshakeCount = worker_->getUnfinishedHandshakeCount();
+
+  worker_->setUnfinishedHandshakeLimit([currentUnfinishedHandshakeCount]() {
+    return currentUnfinishedHandshakeCount + 2;
+  });
   EXPECT_CALL(*quicStats_, onConnectionRateLimited()).Times(1);
 
   NiceMock<MockConnectionSetupCallback> connSetupCb1;
@@ -704,13 +705,12 @@ TEST_F(QuicServerWorkerTest, QuicServerMultipleConnIdsRouting) {
   EXPECT_CALL(
       *transport_, onNetworkData(kClientAddr, NetworkDataMatches(*data)))
       .Times(1);
-  RoutingData routingData2(
-      HeaderForm::Short, false, false, connId, folly::none);
+  RoutingData routingData2(HeaderForm::Short, false, false, connId, none);
   worker_->dispatchPacketData(
       kClientAddr,
       std::move(routingData2),
       NetworkData(data->clone(), Clock::now(), 0),
-      folly::none);
+      none);
   eventbase_.loopIgnoreKeepAlive();
 
   auto connId2 = connId;
@@ -722,13 +722,12 @@ TEST_F(QuicServerWorkerTest, QuicServerMultipleConnIdsRouting) {
   EXPECT_CALL(
       *transport_, onNetworkData(kClientAddr, NetworkDataMatches(*data)))
       .Times(1);
-  RoutingData routingData3(
-      HeaderForm::Short, false, false, connId2, folly::none);
+  RoutingData routingData3(HeaderForm::Short, false, false, connId2, none);
   worker_->dispatchPacketData(
       kClientAddr,
       std::move(routingData3),
       NetworkData(data->clone(), Clock::now(), 0),
-      folly::none);
+      none);
   eventbase_.loopIgnoreKeepAlive();
 
   EXPECT_CALL(*transport_, setRoutingCallback(nullptr));
@@ -823,12 +822,12 @@ TEST_F(QuicServerWorkerTest, QuicServerNewConnection) {
       false,
       false,
       shortHeaderConnId.getConnectionId(),
-      folly::none);
+      none);
   worker_->dispatchPacketData(
       kClientAddr,
       std::move(routingData),
       NetworkData(data->clone(), Clock::now(), 0),
-      folly::none);
+      none);
   eventbase_.loopIgnoreKeepAlive();
 
   ConnectionId newConnId = getTestConnectionId(hostId_);
@@ -857,12 +856,12 @@ TEST_F(QuicServerWorkerTest, QuicServerNewConnection) {
       false,
       false,
       shortHeaderConnId.getConnectionId(),
-      folly::none);
+      none);
   worker_->dispatchPacketData(
       kClientAddr,
       std::move(routingData2),
       NetworkData(data->clone(), Clock::now(), 0),
-      folly::none);
+      none);
   eventbase_.loopIgnoreKeepAlive();
 
   // routing by address after transport_'s connid available, but before
@@ -894,12 +893,12 @@ TEST_F(QuicServerWorkerTest, QuicServerNewConnection) {
       false,
       false,
       shortHeaderConnId2.getConnectionId(),
-      folly::none);
+      none);
   worker_->dispatchPacketData(
       clientAddr2,
       std::move(routingData3),
       NetworkData(data->clone(), Clock::now(), 0),
-      folly::none);
+      none);
   eventbase_.loopIgnoreKeepAlive();
 
   EXPECT_CALL(*transport_, setRoutingCallback(nullptr)).Times(2);
@@ -955,7 +954,7 @@ TEST_F(QuicServerWorkerTest, QuicShedTest) {
       *quicStats_,
       onPacketDropped(
           PacketDropReason(PacketDropReason::CANNOT_MAKE_TRANSPORT)));
-  folly::Optional<VersionNegotiationPacket> versionPacket;
+  Optional<VersionNegotiationPacket> versionPacket;
   EXPECT_CALL(*socketPtr_, write(_, _))
       .WillOnce(Invoke([&](const SocketAddress&,
                            const std::unique_ptr<folly::IOBuf>& writtenData) {
@@ -1430,7 +1429,7 @@ auto createInitialStream(
       streamData->computeChainDataLength(),
       streamData->computeChainDataLength(),
       true,
-      folly::none /* skipLenHint */);
+      none /* skipLenHint */);
   EXPECT_TRUE(dataLen);
   writeStreamFrameData(builder, std::move(streamData), *dataLen);
   return packetToBuf(std::move(builder).buildPacket());
@@ -1580,8 +1579,7 @@ TEST_F(QuicServerWorkerRetryTest, TestNewTokenStatsCallback) {
   auto encryptedToken = generator.encryptToken(newToken);
 
   CHECK(encryptedToken.has_value());
-  std::string encryptedTokenStr =
-      encryptedToken.value()->moveToFbString().toStdString();
+  std::string encryptedTokenStr = encryptedToken.value()->to<std::string>();
 
   auto dstConnId = getTestConnectionId(hostId_);
   auto srcConnId = getTestConnectionId(0);
@@ -1808,7 +1806,7 @@ void QuicServerWorkerTakeoverTest::testNoPacketForwarding(
   auto cb = [&](const folly::SocketAddress& addr,
                 std::unique_ptr<RoutingData>& /* routingData */,
                 std::unique_ptr<NetworkData>& /* networkData */,
-                folly::Optional<QuicVersion> /* quicVersion */,
+                Optional<QuicVersion> /* quicVersion */,
                 bool isForwardedData) {
     EXPECT_EQ(addr.getIPAddress(), clientAddr.getIPAddress());
     EXPECT_EQ(addr.getPort(), clientAddr.getPort());
@@ -1910,7 +1908,7 @@ void QuicServerWorkerTakeoverTest::testPacketForwarding(
   auto cb = [&](const folly::SocketAddress& client,
                 std::unique_ptr<RoutingData>& routingData,
                 std::unique_ptr<NetworkData>& networkData,
-                folly::Optional<QuicVersion> quicVersion,
+                Optional<QuicVersion> quicVersion,
                 bool isForwardedData) {
     takeoverWorker_->dispatchPacketData(
         client,
@@ -1975,7 +1973,7 @@ TEST_F(QuicServerWorkerTakeoverTest, QuicServerTakeoverProcessForwardedPkt) {
         auto cb = [&](const folly::SocketAddress& addr,
                       std::unique_ptr<RoutingData>& /* routingData */,
                       std::unique_ptr<NetworkData>& networkData,
-                      folly::Optional<QuicVersion> /* quicVersion */,
+                      Optional<QuicVersion> /* quicVersion */,
                       bool isForwardedData) {
           // verify that it is the original client address
           EXPECT_EQ(addr.getIPAddress(), clientAddr.getIPAddress());
@@ -1996,7 +1994,7 @@ TEST_F(QuicServerWorkerTakeoverTest, QuicServerTakeoverProcessForwardedPkt) {
   auto workerCb = [&](const folly::SocketAddress& client,
                       std::unique_ptr<RoutingData>& routingData,
                       std::unique_ptr<NetworkData>& networkData,
-                      folly::Optional<QuicVersion> quicVersion,
+                      Optional<QuicVersion> quicVersion,
                       bool isForwardedData) {
     takeoverWorker_->dispatchPacketData(
         client,
@@ -2877,7 +2875,7 @@ TEST_F(QuicServerTest, NetworkTestHealthCheck) {
   };
   reader->getSocket().write(serverAddr, IOBuf::copyBuffer(healthCheckToken));
   auto serverData = reader->readOne().get();
-  EXPECT_EQ(serverData->moveToFbString().toStdString(), std::string("OK"));
+  EXPECT_EQ(serverData->to<std::string>(), std::string("OK"));
 
   reader->getSocket().write(serverAddr, IOBuf::copyBuffer(notHealthCheckToken));
   EXPECT_THROW(reader->readOne().get(200ms), folly::FutureTimeout);
@@ -2909,7 +2907,7 @@ void QuicServerTest::testReset(Buf packet) {
   auto aead = createNoOpAead();
   // Make the decrypt fail
   EXPECT_CALL(*aead, _tryDecrypt(_, _, _))
-      .WillRepeatedly(Invoke([&](auto&, auto, auto) { return folly::none; }));
+      .WillRepeatedly(Invoke([&](auto&, auto, auto) { return none; }));
   codec.setOneRttReadCipher(std::move(aead));
   codec.setOneRttHeaderCipher(test::createNoOpHeaderCipher());
   StatelessResetToken token = generateStatelessResetToken();

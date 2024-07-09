@@ -15,52 +15,44 @@
 
 namespace quic {
 
+// Currently only used for TTLD marking, which is a mark indicating
+// retransmitted data.
+enum class OutstandingPacketMark : uint8_t {
+  NONE = 0, // No marking.
+  TTLD = 1, // Marked for TTL-D retransmission.
+};
+
 struct OutstandingPacketMetadata {
   // Time that the packet was sent.
   TimePoint time;
-  // Size of the packet sent on the wire.
-  uint32_t encodedSize;
-  // Size of only the body within the packet sent on the wire.
-  uint32_t encodedBodySize;
-  // Whether this packet has any data from stream 0
-  bool isHandshake;
   // Total sent bytes on this connection including this packet itself when this
   // packet is sent.
   uint64_t totalBytesSent;
-  // Bytes in flight on this connection including this packet itself when this
-  // packet is sent.
-  uint64_t inflightBytes;
   // Total number of ack-eliciting packets sent on this connection.
-  uint32_t totalAckElicitingPacketsSent{0};
+  uint64_t totalAckElicitingPacketsSent{0};
   // Write Count is the value of the monotonically increasing counter which
   // tracks the number of writes on this socket.
   uint64_t writeCount{0};
-  // Cmsgs added by the QuicSocket when this packet was written
-  folly::Optional<folly::SocketCmsgMap> cmsgs;
 
   // Has value if the packet is lost by timeout. The value is the loss timeout
   // dividend that was used to declare this packet.
-  folly::Optional<DurationRep> lossTimeoutDividend;
+  OptionalIntegral<DurationRep> lossTimeoutDividend;
 
   // Has value if the packet is lost by reorder. The value is the distance
   // between this packet and the acknowleded packet when it was declared lost
   // due to reordering
-  folly::Optional<uint32_t> lossReorderDistance;
-
-  bool scheduledForDestruction{false};
-
   struct StreamDetails {
     template <class T>
-    using IntervalSetVec = SmallVec<T, 4 /* stack size */>;
+    using IntervalSetVec = SmallVec<T, 1 /* stack size */>;
     using StreamIntervals = IntervalSet<uint64_t, 1, IntervalSetVec>;
     StreamIntervals streamIntervals;
 
     uint64_t streamBytesSent{0};
     uint64_t newStreamBytesSent{0};
-    folly::Optional<uint64_t> maybeFirstNewStreamByteOffset;
+    OptionalIntegral<uint64_t> maybeFirstNewStreamByteOffset;
   };
 
-  using MapType = InlineMap<StreamId, StreamDetails, 5>;
+  using MapType = InlineMap<StreamId, StreamDetails, 1>;
   class DetailsPerStream : private MapType {
    public:
     void addFrame(const WriteStreamFrame& frame, const bool newData) {
@@ -110,27 +102,41 @@ struct OutstandingPacketMetadata {
   // was sent.
   std::chrono::microseconds totalAppLimitedTimeUsecs{0};
 
+  OptionalIntegral<uint16_t> lossReorderDistance;
+
+  // Bytes in flight on this connection including this packet itself when this
+  // packet is sent.
+  uint32_t inflightBytes;
+  // Size of the packet sent on the wire.
+  uint16_t encodedSize;
+  // Size of only the body within the packet sent on the wire.
+  uint16_t encodedBodySize;
+
+  bool scheduledForDestruction : 1;
+
+  OutstandingPacketMark mark : 7;
+
   OutstandingPacketMetadata(
       TimePoint timeIn,
-      uint32_t encodedSizeIn,
-      uint32_t encodedBodySizeIn,
-      bool isHandshakeIn,
+      uint16_t encodedSizeIn,
+      uint16_t encodedBodySizeIn,
       uint64_t totalBytesSentIn,
-      uint64_t inflightBytesIn,
+      uint32_t inflightBytesIn,
       const LossState& lossStateIn,
       uint64_t writeCount,
       DetailsPerStream&& detailsPerStream,
       std::chrono::microseconds totalAppLimitedTimeUsecsIn = 0us)
       : time(timeIn),
-        encodedSize(encodedSizeIn),
-        encodedBodySize(encodedBodySizeIn),
-        isHandshake(isHandshakeIn),
         totalBytesSent(totalBytesSentIn),
-        inflightBytes(inflightBytesIn),
         totalAckElicitingPacketsSent(lossStateIn.totalAckElicitingPacketsSent),
         writeCount(writeCount),
         detailsPerStream(std::move(detailsPerStream)),
-        totalAppLimitedTimeUsecs(totalAppLimitedTimeUsecsIn) {}
+        totalAppLimitedTimeUsecs(totalAppLimitedTimeUsecsIn),
+        inflightBytes(inflightBytesIn),
+        encodedSize(encodedSizeIn),
+        encodedBodySize(encodedBodySizeIn),
+        scheduledForDestruction(false),
+        mark(OutstandingPacketMark::NONE) {}
 };
 
 // Data structure to represent outstanding retransmittable packets
@@ -166,27 +172,27 @@ struct OutstandingPacket {
           totalBytesSent(totalBytesSentIn),
           totalBytesAcked(totalBytesAckedIn) {}
   };
-  folly::Optional<LastAckedPacketInfo> lastAckedPacketInfo;
+  Optional<LastAckedPacketInfo> lastAckedPacketInfo;
 
   // PacketEvent associated with this OutstandingPacketWrapper. This will be a
-  // folly::none if the packet isn't a clone and hasn't been cloned.
-  folly::Optional<PacketEvent> associatedEvent;
+  // none if the packet isn't a clone and hasn't been cloned.
+  Optional<PacketEvent> associatedEvent;
+
+  OptionalIntegral<uint64_t> nonDsrPacketSequenceNumber;
 
   // Whether this is a DSR packet. A DSR packet's stream data isn't written
   // by transport directly.
-  bool isDSRPacket{false};
-
-  folly::Optional<uint64_t> nonDsrPacketSequenceNumber;
+  bool isDSRPacket : 1;
 
   /**
    * Whether the packet is sent when congestion controller is in app-limited
    * state.
    */
-  bool isAppLimited{false};
+  bool isAppLimited : 1;
 
   // True if spurious loss detection is enabled and this packet was declared
   // lost.
-  bool declaredLost{false};
+  bool declaredLost : 1;
 
   quic::PacketNum getPacketSequenceNum() const {
     return packet.header.getPacketSequenceNum();
@@ -196,11 +202,10 @@ struct OutstandingPacket {
   OutstandingPacket(
       RegularQuicWritePacket packetIn,
       TimePoint timeIn,
-      uint32_t encodedSizeIn,
-      uint32_t encodedBodySizeIn,
-      bool isHandshakeIn,
+      uint16_t encodedSizeIn,
+      uint16_t encodedBodySizeIn,
       uint64_t totalBytesSentIn,
-      uint64_t inflightBytesIn,
+      uint32_t inflightBytesIn,
       const LossState& lossStateIn,
       uint64_t writeCount,
       Metadata::DetailsPerStream&& detailsPerStream,
@@ -210,17 +215,23 @@ struct OutstandingPacket {
             timeIn,
             encodedSizeIn,
             encodedBodySizeIn,
-            isHandshakeIn,
             totalBytesSentIn,
             inflightBytesIn,
             lossStateIn,
             writeCount,
             std::move(detailsPerStream),
-            totalAppLimitedTimeUsecs)) {}
+            totalAppLimitedTimeUsecs)) {
+    // TODO remove when C++20 everywhere.
+    isDSRPacket = false;
+    isAppLimited = false;
+    declaredLost = false;
+  }
 
   OutstandingPacket(OutstandingPacket&&) = default;
 
   OutstandingPacket& operator=(OutstandingPacket&&) = default;
+
+  OutstandingPacket() = delete;
 };
 
 struct OutstandingPacketWrapper : OutstandingPacket {
@@ -230,11 +241,10 @@ struct OutstandingPacketWrapper : OutstandingPacket {
   OutstandingPacketWrapper(
       RegularQuicWritePacket packetIn,
       TimePoint timeIn,
-      uint32_t encodedSizeIn,
-      uint32_t encodedBodySizeIn,
-      bool isHandshakeIn,
+      uint16_t encodedSizeIn,
+      uint16_t encodedBodySizeIn,
       uint64_t totalBytesSentIn,
-      uint64_t inflightBytesIn,
+      uint32_t inflightBytesIn,
       const LossState& lossStateIn,
       uint64_t writeCount,
       Metadata::DetailsPerStream&& detailsPerStream,
@@ -246,7 +256,6 @@ struct OutstandingPacketWrapper : OutstandingPacket {
             timeIn,
             encodedSizeIn,
             encodedBodySizeIn,
-            isHandshakeIn,
             totalBytesSentIn,
             inflightBytesIn,
             lossStateIn,

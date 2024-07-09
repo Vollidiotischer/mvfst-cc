@@ -7,8 +7,8 @@
 
 #pragma once
 
-#include <folly/Optional.h>
 #include <quic/QuicConstants.h>
+#include <quic/common/Optional.h>
 #include <quic/state/QuicPriorityQueue.h>
 #include <chrono>
 #include <cstdint>
@@ -66,7 +66,7 @@ struct CongestionControlConfig {
   };
 
   // Used by: BBR1
-  folly::Optional<AckFrequencyConfig> ackFrequencyConfig;
+  Optional<AckFrequencyConfig> ackFrequencyConfig;
 
   // Used by: BBR2
   // Whether BBR2 should not use inflightHi when settings its cwnd.
@@ -99,7 +99,7 @@ struct CongestionControlConfig {
   // The target fraction of packets to be marked with CE per-RTT when l4s is
   // used This helps accommodate minor packet bursts that can be caused by pacer
   // bursts
-  float l4sCETarget{0.02f};
+  float l4sCETarget{0.0f};
 };
 
 struct DatagramConfig {
@@ -148,7 +148,7 @@ struct TransportSettings {
       CongestionControlType::Cubic};
   // Param to determine sensitivity of CongestionController to latency. Only
   // used by Copa.
-  folly::Optional<double> copaDeltaParam;
+  Optional<double> copaDeltaParam;
   // Whether to use Copa's RTT standing feature. Only used by Copa.
   bool copaUseRttStanding{false};
   // The max UDP packet size we are willing to receive.
@@ -225,7 +225,7 @@ struct TransportSettings {
   // The minimum amount of time in microseconds by which an ack can be delayed
   // Setting a value here also indicates to the peer that it can send
   // ACK_FREQUENCY and IMMEDIATE_ACK frames
-  folly::Optional<std::chrono::microseconds> minAckDelay;
+  OptionalMicros minAckDelay;
   // Limits the amount of data that should be buffered in a QuicSocket.
   // If the amount of data in the buffer equals or exceeds this amount, then
   // the callback registered through notifyPendingWriteOnConnection() will
@@ -236,15 +236,14 @@ struct TransportSettings {
   // Whether or not the socket should gracefully drain on close
   bool shouldDrain{true};
   // default stateless reset secret for stateless reset token
-  folly::Optional<std::array<uint8_t, kStatelessResetTokenSecretLength>>
+  Optional<std::array<uint8_t, kStatelessResetTokenSecretLength>>
       statelessResetTokenSecret;
   // retry token secret used for encryption/decryption
-  folly::Optional<std::array<uint8_t, kRetryTokenSecretLength>>
-      retryTokenSecret;
+  Optional<std::array<uint8_t, kRetryTokenSecretLength>> retryTokenSecret;
   // Default initial RTT
   std::chrono::microseconds initialRtt{kDefaultInitialRtt};
   // The active_connection_id_limit that is sent to the peer.
-  uint64_t selfActiveConnectionIdLimit{kDefaultActiveConnectionIdLimit};
+  uint64_t selfActiveConnectionIdLimit{kMaxActiveConnectionIdLimit};
   // Maximum size of the batch that should be used when receiving packets from
   // the kernel in one event loop.
   uint16_t maxRecvBatchSize{5};
@@ -341,7 +340,7 @@ struct TransportSettings {
   // If structure is not initialized, ACK receive timestamps are
   // not requested from peer regardless of whether the peer
   // supports them.
-  folly::Optional<AckReceiveTimestampsConfig>
+  Optional<AckReceiveTimestampsConfig>
       maybeAckReceiveTimestampsConfigSentToPeer;
 
   // Maximum number of received packet timestamps stored per ACK. This will be
@@ -362,8 +361,8 @@ struct TransportSettings {
   // Whether to initiate key updates
   bool initiateKeyUpdate{false};
   // How many packets to send before initiating the first key update.
-  // This is reset to folly::none after the first key update is initiated.
-  folly::Optional<uint64_t> firstKeyUpdatePacketCount{
+  // This is reset to none after the first key update is initiated.
+  OptionalIntegral<uint64_t> firstKeyUpdatePacketCount{
       kFirstKeyUpdatePacketCount};
   // How many packets to send before initiating periodic key updates
   uint64_t keyUpdatePacketCountInterval{kDefaultKeyUpdatePacketCountInterval};
@@ -374,6 +373,10 @@ struct TransportSettings {
 
   // Whether to read ECN bits from ingress packets
   bool readEcnOnIngress{false};
+
+  // DSCP value to use for outgoing packet. The two least significant bits of
+  // the ToS field are for ECN controlled by the following two options.
+  uint8_t dscpValue{0};
   // Whether to enable ECN on egress packets
   bool enableEcnOnEgress{false};
   // Whether to use L4S ECN (enableEcnOnEgress must be enabled)

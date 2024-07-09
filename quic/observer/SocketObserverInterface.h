@@ -39,6 +39,7 @@ class SocketObserverInterface {
     streamEvents = 9,
     acksProcessedEvents = 10,
     packetsReceivedEvents = 11,
+    l4sWeightUpdatedEvents = 12,
   };
   virtual ~SocketObserverInterface() = default;
 
@@ -51,7 +52,7 @@ class SocketObserverInterface {
     //
     // The presence of an error code does NOT indicate that a "problem" caused
     // the socket to close, since an error code can be an application timeout.
-    folly::Optional<QuicError> maybeCloseReason;
+    Optional<QuicError> maybeCloseReason;
 
     // Default equality comparator available in C++20.
     //
@@ -97,26 +98,26 @@ class SocketObserverInterface {
     const uint64_t writeCount;
 
     // Timestamp when packet was last written.
-    const folly::Optional<TimePoint> maybeLastPacketSentTime;
+    const Optional<TimePoint> maybeLastPacketSentTime;
 
     // CWND in bytes.
     //
     // Optional to handle cases where congestion controller not used.
-    const folly::Optional<uint64_t> maybeCwndInBytes;
+    const Optional<uint64_t> maybeCwndInBytes;
 
     // Writable bytes.
     //
     // Optional to handle cases where congestion controller not used.
-    const folly::Optional<uint64_t> maybeWritableBytes;
+    const Optional<uint64_t> maybeWritableBytes;
 
     struct BuilderFields {
-      folly::Optional<
+      Optional<
           std::reference_wrapper<const std::deque<OutstandingPacketWrapper>>>
           maybeOutstandingPacketsRef;
-      folly::Optional<uint64_t> maybeWriteCount;
-      folly::Optional<TimePoint> maybeLastPacketSentTime;
-      folly::Optional<uint64_t> maybeCwndInBytes;
-      folly::Optional<uint64_t> maybeWritableBytes;
+      Optional<uint64_t> maybeWriteCount;
+      Optional<TimePoint> maybeLastPacketSentTime;
+      Optional<uint64_t> maybeCwndInBytes;
+      Optional<uint64_t> maybeWritableBytes;
       explicit BuilderFields() = default;
     };
 
@@ -126,11 +127,10 @@ class SocketObserverInterface {
       Builder&& setWriteCount(const uint64_t writeCountIn);
       Builder&& setLastPacketSentTime(const TimePoint& lastPacketSentTimeIn);
       Builder&& setLastPacketSentTime(
-          const folly::Optional<TimePoint>& maybeLastPacketSentTimeIn);
-      Builder&& setCwndInBytes(
-          const folly::Optional<uint64_t>& maybeCwndInBytesIn);
+          const Optional<TimePoint>& maybeLastPacketSentTimeIn);
+      Builder&& setCwndInBytes(const Optional<uint64_t>& maybeCwndInBytesIn);
       Builder&& setWritableBytes(
-          const folly::Optional<uint64_t>& maybeWritableBytesIn);
+          const Optional<uint64_t>& maybeWritableBytesIn);
       WriteEvent build() &&;
       explicit Builder() = default;
     };
@@ -156,11 +156,10 @@ class SocketObserverInterface {
       Builder&& setWriteCount(const uint64_t writeCountIn);
       Builder&& setLastPacketSentTime(const TimePoint& lastPacketSentTimeIn);
       Builder&& setLastPacketSentTime(
-          const folly::Optional<TimePoint>& maybeLastPacketSentTimeIn);
-      Builder&& setCwndInBytes(
-          const folly::Optional<uint64_t>& maybeCwndInBytesIn);
+          const Optional<TimePoint>& maybeLastPacketSentTimeIn);
+      Builder&& setCwndInBytes(const Optional<uint64_t>& maybeCwndInBytesIn);
       Builder&& setWritableBytes(
-          const folly::Optional<uint64_t>& maybeWritableBytesIn);
+          const Optional<uint64_t>& maybeWritableBytesIn);
       AppLimitedEvent build() &&;
       explicit Builder() = default;
     };
@@ -188,9 +187,9 @@ class SocketObserverInterface {
     const uint64_t numBytesWritten;
 
     struct BuilderFields : public WriteEvent::BuilderFields {
-      folly::Optional<uint64_t> maybeNumPacketsWritten;
-      folly::Optional<uint64_t> maybeNumAckElicitingPacketsWritten;
-      folly::Optional<uint64_t> maybeNumBytesWritten;
+      Optional<uint64_t> maybeNumPacketsWritten;
+      Optional<uint64_t> maybeNumAckElicitingPacketsWritten;
+      Optional<uint64_t> maybeNumBytesWritten;
       explicit BuilderFields() = default;
     };
 
@@ -200,15 +199,14 @@ class SocketObserverInterface {
       Builder&& setWriteCount(const uint64_t writeCountIn);
       Builder&& setLastPacketSentTime(const TimePoint& lastPacketSentTimeIn);
       Builder&& setLastPacketSentTime(
-          const folly::Optional<TimePoint>& maybeLastPacketSentTimeIn);
+          const Optional<TimePoint>& maybeLastPacketSentTimeIn);
       Builder&& setNumPacketsWritten(const uint64_t numPacketsWrittenIn);
       Builder&& setNumAckElicitingPacketsWritten(
           const uint64_t numAckElicitingPacketsWrittenIn);
       Builder&& setNumBytesWritten(const uint64_t numBytesWrittenIn);
-      Builder&& setCwndInBytes(
-          const folly::Optional<uint64_t>& maybeCwndInBytesIn);
+      Builder&& setCwndInBytes(const Optional<uint64_t>& maybeCwndInBytesIn);
       Builder&& setWritableBytes(
-          const folly::Optional<uint64_t>& maybeWritableBytesIn);
+          const Optional<uint64_t>& maybeWritableBytesIn);
       PacketsWrittenEvent build() &&;
       explicit Builder() = default;
     };
@@ -236,9 +234,9 @@ class SocketObserverInterface {
       const uint8_t packetTos;
 
       struct BuilderFields {
-        folly::Optional<TimePoint> maybePacketReceiveTime;
-        folly::Optional<uint64_t> maybePacketNumBytes;
-        folly::Optional<uint8_t> maybePacketTos;
+        Optional<TimePoint> maybePacketReceiveTime;
+        Optional<uint64_t> maybePacketNumBytes;
+        Optional<uint8_t> maybePacketTos;
         explicit BuilderFields() = default;
       };
 
@@ -267,9 +265,9 @@ class SocketObserverInterface {
     std::vector<ReceivedUdpPacket> receivedPackets;
 
     struct BuilderFields {
-      folly::Optional<TimePoint> maybeReceiveLoopTime;
-      folly::Optional<uint64_t> maybeNumPacketsReceived;
-      folly::Optional<uint64_t> maybeNumBytesReceived;
+      Optional<TimePoint> maybeReceiveLoopTime;
+      Optional<uint64_t> maybeNumPacketsReceived;
+      Optional<uint64_t> maybeNumBytesReceived;
       std::vector<ReceivedUdpPacket> receivedPackets;
       explicit BuilderFields() = default;
     };
@@ -296,7 +294,7 @@ class SocketObserverInterface {
     const std::vector<AckEvent>& ackEvents;
 
     struct BuilderFields {
-      folly::Optional<std::reference_wrapper<const std::vector<AckEvent>>>
+      Optional<std::reference_wrapper<const std::vector<AckEvent>>>
           maybeAckEventsRef;
       explicit BuilderFields() = default;
     };
@@ -367,7 +365,7 @@ class SocketObserverInterface {
     std::chrono::microseconds rttSample;
     std::chrono::microseconds ackDelay;
     const quic::OutstandingPacketMetadata metadata;
-    const folly::Optional<OutstandingPacketWrapper::LastAckedPacketInfo>
+    const Optional<OutstandingPacketWrapper::LastAckedPacketInfo>
         lastAckedPacketInfo;
   };
 
@@ -417,6 +415,19 @@ class SocketObserverInterface {
 
   using StreamOpenEvent = StreamEvent;
   using StreamCloseEvent = StreamEvent;
+
+  struct L4sWeightUpdateEvent {
+    explicit L4sWeightUpdateEvent(
+        double l4sWeightIn,
+        uint32_t newECT1EchoedIn,
+        uint32_t newCEEchoedIn)
+        : l4sWeight(l4sWeightIn),
+          newECT1Echoed(newECT1EchoedIn),
+          newCEEchoed(newCEEchoedIn) {}
+    double l4sWeight;
+    uint32_t newECT1Echoed;
+    uint32_t newCEEchoed;
+  };
 
   /**
    * Events.
@@ -585,6 +596,17 @@ class SocketObserverInterface {
   virtual void streamClosed(
       QuicSocket*, /* socket */
       const StreamCloseEvent& /* event */) {}
+
+  /**
+   * l4sWeightUpdated() is invoked when l4s in enabled and new CE markings are
+   * echoed by the peer
+   *
+   * @param socket   Socket associated with the event
+   * @param event    Event with the new weight and received ECN marks
+   */
+  virtual void l4sWeightUpdated(
+      QuicSocket* /* socket */,
+      const L4sWeightUpdateEvent& /* event */) noexcept {}
 };
 
 } // namespace quic

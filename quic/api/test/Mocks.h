@@ -257,16 +257,12 @@ class MockQuicTransport : public QuicServerTransport {
       setServerConnectionIdParams,
       (ServerConnectionIdParams),
       (noexcept));
-  MOCK_METHOD((void), close, (folly::Optional<QuicError>), (noexcept));
-  MOCK_METHOD((void), closeNow, (folly::Optional<QuicError>), (noexcept));
+  MOCK_METHOD((void), close, (Optional<QuicError>), (noexcept));
+  MOCK_METHOD((void), closeNow, (Optional<QuicError>), (noexcept));
   MOCK_METHOD((bool), hasShutdown, (), (const));
+  MOCK_METHOD((Optional<ConnectionId>), getClientConnectionId, (), (const));
   MOCK_METHOD(
-      (folly::Optional<ConnectionId>),
-      getClientConnectionId,
-      (),
-      (const));
-  MOCK_METHOD(
-      (folly::Optional<ConnectionId>),
+      (Optional<ConnectionId>),
       getClientChosenDestConnectionId,
       (),
       (const));
@@ -395,6 +391,11 @@ class MockLegacyObserver : public LegacyObserver {
       (void),
       streamClosed,
       (QuicSocket*, const StreamCloseEvent&),
+      (noexcept));
+  MOCK_METHOD(
+      (void),
+      l4sWeightUpdated,
+      (QuicSocket*, const L4sWeightUpdateEvent&),
       (noexcept));
 
   static auto getLossPacketNum(PacketNum packetNum) {

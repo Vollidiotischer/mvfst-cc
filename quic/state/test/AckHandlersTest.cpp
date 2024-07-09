@@ -71,7 +71,6 @@ auto emplacePackets(
         sentTime,
         1,
         0,
-        false /* handshake */,
         packetNum,
         packetNum + 1,
         quic::LossState(),
@@ -190,7 +189,6 @@ TEST_P(AckHandlersTest, TestAckMultipleSequentialBlocks) {
         sentTime,
         1,
         0,
-        false,
         packetNum,
         0,
         LossState(),
@@ -267,7 +265,6 @@ TEST_P(AckHandlersTest, TestAckWithECN) {
       packetSendTime,
       0,
       0,
-      false,
       0,
       0,
       LossState(),
@@ -339,7 +336,6 @@ TEST_P(AckHandlersTest, TestSpuriousLossFullRemoval) {
       startTime,
       1,
       0,
-      false /* handshake */,
       0,
       1,
       quic::LossState(),
@@ -419,7 +415,6 @@ TEST_P(AckHandlersTest, TestSpuriousLossSplitMiddleRemoval) {
       startTime,
       1,
       0,
-      false /* handshake */,
       0,
       1,
       quic::LossState(),
@@ -505,7 +500,6 @@ TEST_P(AckHandlersTest, TestSpuriousLossTrimFrontRemoval) {
       startTime,
       1,
       0,
-      false /* handshake */,
       0,
       1,
       quic::LossState(),
@@ -588,7 +582,6 @@ TEST_P(AckHandlersTest, TestSpuriousLossSplitFrontRemoval) {
       startTime,
       1,
       0,
-      false /* handshake */,
       0,
       1,
       quic::LossState(),
@@ -674,7 +667,6 @@ TEST_P(AckHandlersTest, TestPacketDestructionAcks) {
         sentTime,
         1,
         0,
-        false,
         packetNum,
         0,
         LossState(),
@@ -754,7 +746,6 @@ TEST_P(AckHandlersTest, TestPacketDestructionSpuriousLoss) {
         startTime + std::chrono::milliseconds((packetNum - 1) * 100),
         1,
         0,
-        false,
         packetNum,
         0,
         LossState(),
@@ -820,7 +811,6 @@ TEST_P(AckHandlersTest, TestPacketDestructionSpuriousLoss) {
         startTime + std::chrono::milliseconds((packetNum - 1) * 100),
         1,
         0,
-        false,
         packetNum,
         0,
         LossState(),
@@ -898,7 +888,6 @@ TEST_P(AckHandlersTest, TestPacketDestructionBigDeque) {
         sentTime,
         1,
         0,
-        false,
         packetNum,
         0,
         LossState(),
@@ -1005,7 +994,6 @@ TEST_P(AckHandlersTest, TestAckMultipleSequentialBlocksLoss) {
         sentTime,
         1,
         0,
-        false,
         packetNum,
         0,
         LossState(),
@@ -1163,7 +1151,6 @@ TEST_P(AckHandlersTest, TestAckBlocksWithGaps) {
         Clock::now(),
         1,
         0,
-        false,
         packetNum,
         0,
         LossState(),
@@ -1281,7 +1268,6 @@ TEST_P(AckHandlersTest, TestNonSequentialPacketNumbers) {
         Clock::now(),
         1,
         0,
-        false,
         packetNum,
         0,
         LossState(),
@@ -1303,7 +1289,6 @@ TEST_P(AckHandlersTest, TestNonSequentialPacketNumbers) {
         Clock::now(),
         1,
         0,
-        false,
         packetNum,
         0,
         LossState(),
@@ -1400,7 +1385,6 @@ TEST_P(AckHandlersTest, AckVisitorForAckTest) {
       Clock::now(),
       0,
       0,
-      false,
       0,
       0,
       LossState(),
@@ -1422,7 +1406,6 @@ TEST_P(AckHandlersTest, AckVisitorForAckTest) {
       Clock::now(),
       0,
       0,
-      false,
       0,
       0,
       LossState(),
@@ -1495,7 +1478,6 @@ TEST_P(AckHandlersTest, NoNewAckedPacket) {
       Clock::now(),
       0,
       0,
-      false,
       0,
       0,
       LossState(),
@@ -1555,7 +1537,6 @@ TEST_P(AckHandlersTest, AckPacketNumDoesNotExist) {
       Clock::now(),
       0,
       0,
-      false,
       0,
       0,
       LossState(),
@@ -1572,7 +1553,6 @@ TEST_P(AckHandlersTest, AckPacketNumDoesNotExist) {
       Clock::now(),
       0,
       0,
-      false,
       0,
       0,
       LossState(),
@@ -1616,7 +1596,6 @@ TEST_P(AckHandlersTest, TestHandshakeCounterUpdate) {
         Clock::now(),
         0,
         0,
-        packetNum % 2 && GetParam().pnSpace != PacketNumberSpace::AppData,
         packetNum / 2,
         0,
         LossState(),
@@ -1828,7 +1807,6 @@ TEST_P(AckHandlersTest, NoSkipAckVisitor) {
       Clock::now(),
       1,
       0,
-      false,
       1,
       0,
       LossState(),
@@ -1892,7 +1870,6 @@ TEST_P(AckHandlersTest, SkipAckVisitor) {
       Clock::now(),
       1,
       0,
-      false,
       1,
       0,
       LossState(),
@@ -1954,7 +1931,6 @@ TEST_P(AckHandlersTest, MultiplePacketProcessors) {
         Clock::now(),
         1,
         0,
-        false,
         1 * (packetNum + 1),
         0,
         LossState(),
@@ -2015,7 +1991,6 @@ TEST_P(AckHandlersTest, NoDoubleProcess) {
       Clock::now(),
       1,
       0,
-      false,
       1,
       0,
       LossState(),
@@ -2028,7 +2003,6 @@ TEST_P(AckHandlersTest, NoDoubleProcess) {
       Clock::now(),
       1,
       0,
-      false,
       1,
       0,
       LossState(),
@@ -2094,7 +2068,6 @@ TEST_P(AckHandlersTest, ClonedPacketsCounter) {
       Clock::now(),
       1,
       0,
-      false,
       1,
       0,
       LossState(),
@@ -2111,7 +2084,6 @@ TEST_P(AckHandlersTest, ClonedPacketsCounter) {
       Clock::now(),
       1,
       0,
-      false,
       1,
       0,
       LossState(),
@@ -2163,7 +2135,6 @@ TEST_P(AckHandlersTest, UpdateMaxAckDelay) {
       sentTime,
       1,
       0,
-      false,
       1,
       0,
       LossState(),
@@ -2239,7 +2210,6 @@ TEST_P(AckHandlersTest, AckNotOutstandingButLoss) {
       Clock::now() - delayUntilLost - 20ms,
       1,
       0,
-      false,
       1,
       0,
       LossState(),
@@ -2290,7 +2260,6 @@ TEST_P(AckHandlersTest, UpdatePendingAckStates) {
       sentTime,
       111,
       100,
-      false,
       conn.lossState.totalBytesSent + 111,
       0,
       LossState(),
@@ -2359,7 +2328,6 @@ TEST_P(AckHandlersTest, AckEventCreation) {
         getSentTime(packetNum),
         1 /* encodedSizeIn */,
         0 /* encodedBodySizeIn */,
-        false /* isHandshakeIn */,
         1 * (packetNum + 1) /* totalBytesSentIn */,
         0 /* inflightBytesIn */,
         LossState(),
@@ -2431,8 +2399,7 @@ TEST_P(AckHandlersTest, AckEventCreation) {
       .WillOnce(Return(writableBytes));
   EXPECT_CALL(*rawCongestionController, getCongestionWindow())
       .WillOnce(Return(congestionWindow));
-  EXPECT_CALL(*rawCongestionController, getBandwidth())
-      .WillOnce(Return(folly::none));
+  EXPECT_CALL(*rawCongestionController, getBandwidth()).WillOnce(Return(none));
   EXPECT_CALL(*rawPacketProcessor, onPacketAck(_)).Times(1);
 
   // check the AckEvent returned by processAckFrame so everything is filled
@@ -2487,7 +2454,6 @@ TEST_P(AckHandlersTest, AckEventCreationSingleWrite) {
         getSentTime(packetNum),
         1 /* encodedSizeIn */,
         0 /* encodedBodySizeIn */,
-        false /* isHandshakeIn */,
         1 * (packetNum + 1) /* totalBytesSentIn */,
         0 /* inflightBytesIn */,
         LossState(),
@@ -2561,8 +2527,7 @@ TEST_P(AckHandlersTest, AckEventCreationSingleWrite) {
       .WillOnce(Return(writableBytes));
   EXPECT_CALL(*rawCongestionController, getCongestionWindow())
       .WillOnce(Return(congestionWindow));
-  EXPECT_CALL(*rawCongestionController, getBandwidth())
-      .WillOnce(Return(folly::none));
+  EXPECT_CALL(*rawCongestionController, getBandwidth()).WillOnce(Return(none));
   EXPECT_CALL(*rawPacketProcessor, onPacketAck(_)).Times(1);
 
   // check the AckEvent returned by processAckFrame so everything is filled
@@ -2616,7 +2581,6 @@ TEST_P(AckHandlersTest, AckEventCreationNoCongestionController) {
         getSentTime(packetNum),
         1 /* encodedSizeIn */,
         0 /* encodedBodySizeIn */,
-        false /* isHandshakeIn */,
         1 * (packetNum + 1) /* totalBytesSentIn */,
         0 /* inflightBytesIn */,
         LossState(),
@@ -3350,7 +3314,6 @@ TEST_P(AckHandlersTest, AckEventCreationInvalidAckDelay) {
         getSentTime(packetNum),
         1 /* encodedSizeIn */,
         0 /* encodedBodySizeIn */,
-        false /* isHandshakeIn */,
         1 * (packetNum + 1) /* totalBytesSentIn */,
         0 /* inflightBytesIn */,
         LossState(),
@@ -3397,15 +3360,14 @@ TEST_P(AckHandlersTest, AckEventCreationInvalidAckDelay) {
                 ackTime - getSentTime(9)),
             ack->rttSample);
         EXPECT_EQ(
-            folly::none, // ack delay > RTT, so not set
+            std::nullopt, // ack delay > RTT, so not set
             ack->rttSampleNoAckDelay);
       }));
   EXPECT_CALL(*rawCongestionController, getWritableBytes())
       .WillOnce(Return(writableBytes));
   EXPECT_CALL(*rawCongestionController, getCongestionWindow())
       .WillOnce(Return(congestionWindow));
-  EXPECT_CALL(*rawCongestionController, getBandwidth())
-      .WillOnce(Return(folly::none));
+  EXPECT_CALL(*rawCongestionController, getBandwidth()).WillOnce(Return(none));
   EXPECT_CALL(*rawPacketProcessor, onPacketAck(_)).Times(1);
 
   processAckFrame(
@@ -3454,7 +3416,6 @@ TEST_P(AckHandlersTest, AckEventCreationRttMinusAckDelayIsZero) {
         getSentTime(packetNum),
         1 /* encodedSizeIn */,
         0 /* encodedBodySizeIn */,
-        false /* isHandshakeIn */,
         1 * (packetNum + 1) /* totalBytesSentIn */,
         0 /* inflightBytesIn */,
         LossState(),
@@ -3506,8 +3467,7 @@ TEST_P(AckHandlersTest, AckEventCreationRttMinusAckDelayIsZero) {
       .WillOnce(Return(writableBytes));
   EXPECT_CALL(*rawCongestionController, getCongestionWindow())
       .WillOnce(Return(congestionWindow));
-  EXPECT_CALL(*rawCongestionController, getBandwidth())
-      .WillOnce(Return(folly::none));
+  EXPECT_CALL(*rawCongestionController, getBandwidth()).WillOnce(Return(none));
   EXPECT_CALL(*rawPacketProcessor, onPacketAck(_)).Times(1);
 
   processAckFrame(
@@ -3565,7 +3525,6 @@ TEST_P(AckHandlersTest, AckEventCreationReorderingLargestPacketAcked) {
         getSentTime(packetNum),
         1 /* encodedSizeIn */,
         0 /* encodedBodySizeIn */,
-        false /* isHandshakeIn */,
         1 * (packetNum + 1) /* totalBytesSentIn */,
         0 /* inflightBytesIn */,
         LossState(),
@@ -3635,7 +3594,7 @@ TEST_P(AckHandlersTest, AckEventCreationReorderingLargestPacketAcked) {
     EXPECT_CALL(*rawCongestionController, getCongestionWindow())
         .WillOnce(Return(congestionWindow));
     EXPECT_CALL(*rawCongestionController, getBandwidth())
-        .WillOnce(Return(folly::none));
+        .WillOnce(Return(none));
     EXPECT_CALL(*rawPacketProcessor, onPacketAck(_)).Times(1);
 
     processAckFrame(
@@ -3678,8 +3637,8 @@ TEST_P(AckHandlersTest, AckEventCreationReorderingLargestPacketAcked) {
               Pointee(
                   getAckPacketMatcher(4, getWriteCount(4), getSentTime(4))));
 
-          EXPECT_EQ(folly::none, ack->rttSample); // no RTT sample
-          EXPECT_EQ(folly::none, ack->rttSampleNoAckDelay); // no RTT sample
+          EXPECT_EQ(std::nullopt, ack->rttSample); // no RTT sample
+          EXPECT_EQ(std::nullopt, ack->rttSampleNoAckDelay); // no RTT sample
           EXPECT_THAT(ack->ackedPackets, SizeIs(1));
           EXPECT_THAT(
               ack->ackedPackets,
@@ -3691,7 +3650,7 @@ TEST_P(AckHandlersTest, AckEventCreationReorderingLargestPacketAcked) {
     EXPECT_CALL(*rawCongestionController, getCongestionWindow())
         .WillOnce(Return(congestionWindow));
     EXPECT_CALL(*rawCongestionController, getBandwidth())
-        .WillOnce(Return(folly::none));
+        .WillOnce(Return(none));
     EXPECT_CALL(*rawPacketProcessor, onPacketAck(_)).Times(1);
 
     processAckFrame(
@@ -3733,8 +3692,8 @@ TEST_P(AckHandlersTest, AckEventCreationReorderingLargestPacketAcked) {
               Pointee(
                   getAckPacketMatcher(6, getWriteCount(6), getSentTime(6))));
 
-          EXPECT_EQ(folly::none, ack->rttSample); // no RTT sample
-          EXPECT_EQ(folly::none, ack->rttSampleNoAckDelay); // no RTT sample
+          EXPECT_EQ(std::nullopt, ack->rttSample); // no RTT sample
+          EXPECT_EQ(std::nullopt, ack->rttSampleNoAckDelay); // no RTT sample
           EXPECT_THAT(ack->ackedPackets, SizeIs(2));
           EXPECT_THAT(
               ack->ackedPackets,
@@ -3747,7 +3706,7 @@ TEST_P(AckHandlersTest, AckEventCreationReorderingLargestPacketAcked) {
     EXPECT_CALL(*rawCongestionController, getCongestionWindow())
         .WillOnce(Return(congestionWindow));
     EXPECT_CALL(*rawCongestionController, getBandwidth())
-        .WillOnce(Return(folly::none));
+        .WillOnce(Return(none));
     EXPECT_CALL(*rawPacketProcessor, onPacketAck(_)).Times(1);
 
     processAckFrame(
@@ -3797,7 +3756,6 @@ TEST_P(AckHandlersTest, AckEventCreationNoMatchingPacketDueToLoss) {
         getSentTime(packetNum),
         1 /* encodedSizeIn */,
         0 /* encodedBodySizeIn */,
-        false /* isHandshakeIn */,
         1 * (packetNum + 1) /* totalBytesSentIn */,
         0 /* inflightBytesIn */,
         LossState(),
@@ -3867,7 +3825,7 @@ TEST_P(AckHandlersTest, AckEventCreationNoMatchingPacketDueToLoss) {
     EXPECT_CALL(*rawCongestionController, getCongestionWindow())
         .WillOnce(Return(congestionWindow));
     EXPECT_CALL(*rawCongestionController, getBandwidth())
-        .WillOnce(Return(folly::none));
+        .WillOnce(Return(none));
     EXPECT_CALL(*rawPacketProcessor, onPacketAck(_)).Times(1);
 
     processAckFrame(
@@ -3938,7 +3896,6 @@ TEST_P(AckHandlersTest, ImplictAckEventCreation) {
         getSentTime(packetNum),
         1 /* encodedSizeIn */,
         0 /* encodedBodySizeIn */,
-        false /* isHandshakeIn */,
         1 * (packetNum + 1) /* totalBytesSentIn */,
         0 /* inflightBytesIn */,
         LossState(),
@@ -3992,8 +3949,7 @@ TEST_P(AckHandlersTest, ImplictAckEventCreation) {
       .WillOnce(Return(writableBytes));
   EXPECT_CALL(*rawCongestionController, getCongestionWindow())
       .WillOnce(Return(congestionWindow));
-  EXPECT_CALL(*rawCongestionController, getBandwidth())
-      .WillOnce(Return(folly::none));
+  EXPECT_CALL(*rawCongestionController, getBandwidth()).WillOnce(Return(none));
   EXPECT_CALL(*rawPacketProcessor, onPacketAck(_)).Times(1);
 
   processAckFrame(
@@ -4040,7 +3996,6 @@ TEST_P(AckHandlersTest, ObserverRttSample) {
         sentTime,
         1,
         0,
-        false /* handshake */,
         packetNum,
         packetNum + 1,
         LossState(),
@@ -4324,7 +4279,6 @@ TEST_P(AckHandlersTest, SubMicrosecondRTT) {
       packetSendTime,
       0,
       0,
-      false,
       0,
       0,
       LossState(),
@@ -4409,7 +4363,7 @@ class AckEventForAppDataTest : public Test {
   auto buildEmptyPacket(
       const PacketNumberSpace pnSpace,
       const bool shortHeader = false) {
-    folly::Optional<PacketHeader> header;
+    Optional<PacketHeader> header;
     if (shortHeader) {
       header = ShortHeader(
           ProtectionType::KeyPhaseZero,
@@ -4474,7 +4428,7 @@ class AckEventForAppDataTest : public Test {
       const TimePoint timepoint = Clock::now()) {
     updateConnection(
         *conn_,
-        folly::none,
+        none,
         packet.packet,
         timepoint,
         getEncodedSize(packet),

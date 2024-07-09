@@ -93,7 +93,7 @@ class QuicPacketBuilderTest : public TestWithParam<TestFlavor> {
       uint32_t pktSizeLimit,
       PacketHeader header,
       PacketNum largestAckedPacketNum,
-      folly::Optional<size_t> outputBufSize) {
+      quic::Optional<size_t> outputBufSize) {
     switch (flavor) {
       case TestFlavor::Regular:
         return std::make_unique<RegularQuicPacketBuilder>(
@@ -703,8 +703,7 @@ TEST_F(QuicPacketBuilderTest, RetryPacketValid) {
   Buf retryTokenObtained;
   cursor.clone(
       retryTokenObtained, cursor.totalLength() - kRetryIntegrityTagLen);
-  std::string retryTokenObtainedString =
-      retryTokenObtained->moveToFbString().toStdString();
+  std::string retryTokenObtainedString = retryTokenObtained->to<std::string>();
   EXPECT_EQ(retryTokenObtainedString, retryToken);
 
   // integrity tag

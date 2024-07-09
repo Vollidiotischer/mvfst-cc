@@ -51,10 +51,10 @@ AckEvent::AckPacket::AckPacket(
     uint64_t nonDsrPacketSequenceNumberIn,
     const OutstandingPacketMetadata& outstandingPacketMetadataIn, // NOLINT
     const DetailsPerStream& detailsPerStreamIn, // NOLINT
-    folly::Optional<OutstandingPacketWrapper::LastAckedPacketInfo>
+    Optional<OutstandingPacketWrapper::LastAckedPacketInfo>
         lastAckedPacketInfoIn,
     bool isAppLimitedIn,
-    folly::Optional<std::chrono::microseconds>&& receiveRelativeTimeStampUsec)
+    OptionalMicros&& receiveRelativeTimeStampUsec)
     : packetNum(packetNumIn),
       nonDsrPacketSequenceNumber(nonDsrPacketSequenceNumberIn),
       outstandingPacketMetadata(outstandingPacketMetadataIn), // NOLINT
@@ -105,7 +105,7 @@ AckEvent::AckPacket::Builder&& AckEvent::AckPacket::Builder::setAppLimited(
 
 AckEvent::AckPacket::Builder&&
 AckEvent::AckPacket::Builder::setReceiveDeltaTimeStamp(
-    folly::Optional<std::chrono::microseconds>&& receiveTimeStampIn) {
+    OptionalMicros&& receiveTimeStampIn) {
   receiveRelativeTimeStampUsec = receiveTimeStampIn;
   return std::move(*this);
 }
@@ -119,10 +119,9 @@ AckEvent::AckPacket AckEvent::AckPacket::Builder::build() && {
       nonDsrPacketSequenceNumber.value(),
       *outstandingPacketMetadata,
       detailsPerStream.value(),
-      lastAckedPacketInfo
-          ? folly::Optional<OutstandingPacket::LastAckedPacketInfo>(
-                *lastAckedPacketInfo)
-          : folly::none,
+      lastAckedPacketInfo ? Optional<OutstandingPacket::LastAckedPacketInfo>(
+                                *lastAckedPacketInfo)
+                          : none,
       isAppLimited,
       std::move(receiveRelativeTimeStampUsec));
 }
@@ -179,7 +178,7 @@ AckEvent::AckEvent(AckEvent::BuilderFields&& builderFields)
     : ackTime(*CHECK_NOTNULL(builderFields.maybeAckTime.get_pointer())),
       adjustedAckTime(
           *CHECK_NOTNULL(builderFields.maybeAdjustedAckTime.get_pointer())),
-      ackDelay(*CHECK_NOTNULL(builderFields.maybeAckDelay.get_pointer())),
+      ackDelay(builderFields.maybeAckDelay.value()),
       packetNumberSpace(
           *CHECK_NOTNULL(builderFields.maybePacketNumberSpace.get_pointer())),
       largestAckedPacket(

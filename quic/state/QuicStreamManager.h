@@ -236,7 +236,7 @@ class QuicStreamManager {
    */
   folly::Expected<QuicStreamState*, LocalErrorCode> createStream(
       StreamId streamId,
-      folly::Optional<StreamGroupId> streamGroupId = folly::none);
+      OptionalIntegral<StreamGroupId> streamGroupId = std::nullopt);
 
   /*
    * Create a new bidirectional stream group.
@@ -249,7 +249,7 @@ class QuicStreamManager {
    */
   folly::Expected<QuicStreamState*, LocalErrorCode>
   createNextBidirectionalStream(
-      folly::Optional<StreamGroupId> streamGroupId = folly::none);
+      OptionalIntegral<StreamGroupId> streamGroupId = std::nullopt);
 
   /*
    * Create a new unidirectional stream group.
@@ -262,7 +262,7 @@ class QuicStreamManager {
    */
   folly::Expected<QuicStreamState*, LocalErrorCode>
   createNextUnidirectionalStream(
-      folly::Optional<StreamGroupId> streamGroupId = folly::none);
+      OptionalIntegral<StreamGroupId> streamGroupId = std::nullopt);
 
   /*
    * Return the stream state or create it if the state has not yet been created.
@@ -270,7 +270,7 @@ class QuicStreamManager {
    */
   QuicStreamState* FOLLY_NULLABLE getStream(
       StreamId streamId,
-      folly::Optional<StreamGroupId> streamGroupId = folly::none);
+      OptionalIntegral<StreamGroupId> streamGroupId = std::nullopt);
 
   /*
    * Remove all the state for a stream that is being closed.
@@ -348,12 +348,12 @@ class QuicStreamManager {
    *
    * If the maximum has been reached, empty optional returned.
    */
-  folly::Optional<StreamId> nextAcceptablePeerBidirectionalStreamId() {
+  Optional<StreamId> nextAcceptablePeerBidirectionalStreamId() {
     const auto max = maxRemoteBidirectionalStreamId_;
     const auto next = nextAcceptablePeerBidirectionalStreamId_;
     CHECK_GE(max, next);
     if (max == next) {
-      return folly::none;
+      return none;
     }
     return next;
   }
@@ -363,12 +363,12 @@ class QuicStreamManager {
    *
    * If the maximum has been reached, empty optional returned.
    */
-  folly::Optional<StreamId> nextAcceptablePeerUnidirectionalStreamId() {
+  Optional<StreamId> nextAcceptablePeerUnidirectionalStreamId() {
     const auto max = maxRemoteUnidirectionalStreamId_;
     const auto next = nextAcceptablePeerUnidirectionalStreamId_;
     CHECK_GE(max, next);
     if (max == next) {
-      return folly::none;
+      return none;
     }
     return next;
   }
@@ -378,12 +378,12 @@ class QuicStreamManager {
    *
    * If the maximum has been reached, empty optional returned.
    */
-  folly::Optional<StreamId> nextAcceptableLocalBidirectionalStreamId() {
+  Optional<StreamId> nextAcceptableLocalBidirectionalStreamId() {
     const auto max = maxLocalBidirectionalStreamId_;
     const auto next = nextAcceptableLocalBidirectionalStreamId_;
     CHECK_GE(max, next);
     if (max == next) {
-      return folly::none;
+      return none;
     }
     return next;
   }
@@ -393,12 +393,12 @@ class QuicStreamManager {
    *
    * If the maximum has been reached, empty optional returned.
    */
-  folly::Optional<StreamId> nextAcceptableLocalUnidirectionalStreamId() {
+  Optional<StreamId> nextAcceptableLocalUnidirectionalStreamId() {
     const auto max = maxLocalUnidirectionalStreamId_;
     const auto next = nextAcceptableLocalUnidirectionalStreamId_;
     CHECK_GE(max, next);
     if (max == next) {
-      return folly::none;
+      return none;
     }
     return next;
   }
@@ -626,7 +626,7 @@ class QuicStreamManager {
    * if any. This is potentially updated every time a bidirectional stream is
    * closed. Calling this function "consumes" the update.
    */
-  folly::Optional<uint64_t> remoteBidirectionalStreamLimitUpdate() {
+  Optional<uint64_t> remoteBidirectionalStreamLimitUpdate() {
     auto ret = remoteBidirectionalStreamLimitUpdate_;
     remoteBidirectionalStreamLimitUpdate_.reset();
     return ret;
@@ -637,7 +637,7 @@ class QuicStreamManager {
    * if any. This is potentially updated every time a unidirectional stream is
    * closed. Calling this function "consumes" the update.
    */
-  folly::Optional<uint64_t> remoteUnidirectionalStreamLimitUpdate() {
+  Optional<uint64_t> remoteUnidirectionalStreamLimitUpdate() {
     auto ret = remoteUnidirectionalStreamLimitUpdate_;
     remoteUnidirectionalStreamLimitUpdate_.reset();
     return ret;
@@ -718,10 +718,10 @@ class QuicStreamManager {
   /*
    * Pop a deliverable stream id and return it.
    */
-  folly::Optional<StreamId> popDeliverable() {
+  Optional<StreamId> popDeliverable() {
     auto itr = deliverableStreams_.begin();
     if (itr == deliverableStreams_.end()) {
-      return folly::none;
+      return none;
     }
     StreamId ret = *itr;
     deliverableStreams_.erase(itr);
@@ -766,10 +766,10 @@ class QuicStreamManager {
   /*
    * Pop a TX stream id and return it.
    */
-  folly::Optional<StreamId> popTx() {
+  Optional<StreamId> popTx() {
     auto itr = txStreams_.begin();
     if (itr == txStreams_.end()) {
-      return folly::none;
+      return none;
     } else {
       StreamId ret = *itr;
       txStreams_.erase(itr);
@@ -835,10 +835,10 @@ class QuicStreamManager {
   /*
    * Pop and return a stream which has had its flow control updated.
    */
-  folly::Optional<StreamId> popFlowControlUpdated() {
+  Optional<StreamId> popFlowControlUpdated() {
     auto itr = flowControlUpdated_.begin();
     if (itr == flowControlUpdated_.end()) {
-      return folly::none;
+      return none;
     } else {
       StreamId ret = *itr;
       flowControlUpdated_.erase(itr);
@@ -1061,7 +1061,7 @@ class QuicStreamManager {
 
   QuicStreamState* FOLLY_NULLABLE getOrCreatePeerStream(
       StreamId streamId,
-      folly::Optional<StreamGroupId> streamGroupId = folly::none);
+      OptionalIntegral<StreamGroupId> streamGroupId = std::nullopt);
 
   void setMaxRemoteBidirectionalStreamsInternal(
       uint64_t maxStreams,
@@ -1076,7 +1076,7 @@ class QuicStreamManager {
   // helper to create a new peer stream.
   QuicStreamState* FOLLY_NULLABLE instantiatePeerStream(
       StreamId streamId,
-      folly::Optional<StreamGroupId> groupId);
+      OptionalIntegral<StreamGroupId> groupId);
 
   folly::Expected<StreamGroupId, LocalErrorCode> createNextStreamGroup(
       StreamGroupId& groupId,
@@ -1135,11 +1135,11 @@ class QuicStreamManager {
 
   // Contains the value of a stream window update that should be sent for
   // remote bidirectional streams.
-  folly::Optional<uint64_t> remoteBidirectionalStreamLimitUpdate_;
+  Optional<uint64_t> remoteBidirectionalStreamLimitUpdate_;
 
   // Contains the value of a stream window update that should be sent for
   // remote bidirectional streams.
-  folly::Optional<uint64_t> remoteUnidirectionalStreamLimitUpdate_;
+  Optional<uint64_t> remoteUnidirectionalStreamLimitUpdate_;
 
   uint64_t numControlStreams_{0};
 

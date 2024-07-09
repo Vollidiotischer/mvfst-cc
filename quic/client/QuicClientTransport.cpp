@@ -517,8 +517,7 @@ void QuicClientTransport::processUdpPacketData(
       }
       case QuicFrame::Type::ReadNewTokenFrame: {
         ReadNewTokenFrame& newTokenFrame = *quicFrame.asReadNewTokenFrame();
-        std::string tokenStr =
-            newTokenFrame.token->moveToFbString().toStdString();
+        std::string tokenStr = newTokenFrame.token->to<std::string>();
         VLOG(10) << "client received new token token="
                  << folly::hexlify(tokenStr);
         if (newTokenCallback_) {
@@ -627,7 +626,7 @@ void QuicClientTransport::processUdpPacketData(
         break;
       }
       case QuicFrame::Type::ImmediateAckFrame: {
-        if (!conn_->transportSettings.minAckDelay.hasValue()) {
+        if (!conn_->transportSettings.minAckDelay.has_value()) {
           // We do not accept IMMEDIATE_ACK frames. This is a protocol
           // violation.
           throw QuicTransportException(
@@ -656,6 +655,7 @@ void QuicClientTransport::processUdpPacketData(
     handshakeConfirmed(*conn_);
   }
 
+  maybeScheduleAckForCongestionFeedback(udpPacket, ackState);
   maybeHandleIncomingKeyUpdate(*conn_);
 
   // Try reading bytes off of crypto, and performing a handshake.
@@ -738,7 +738,16 @@ void QuicClientTransport::processUdpPacketData(
             conn_->flowControlState.peerAdvertisedInitialMaxStreamOffsetUni,
             maxStreamsBidi.value_or(0),
             maxStreamsUni.value_or(0),
-            conn_->peerAdvertisedKnobFrameSupport);
+            conn_->peerAdvertisedKnobFrameSupport,
+            conn_->maybePeerAckReceiveTimestampsConfig.has_value(),
+            conn_->maybePeerAckReceiveTimestampsConfig
+                ? conn_->maybePeerAckReceiveTimestampsConfig
+                      ->maxReceiveTimestampsPerAck
+                : 0,
+            conn_->maybePeerAckReceiveTimestampsConfig
+                ? conn_->maybePeerAckReceiveTimestampsConfig
+                      ->receiveTimestampsExponent
+                : 3);
 
         if (clientConn_->zeroRttRejected.has_value() &&
             *clientConn_->zeroRttRejected) {
@@ -1131,7 +1140,7 @@ void QuicClientTransport::recvMsg(
     uint64_t readBufferSize,
     int numPackets,
     NetworkData& networkData,
-    folly::Optional<folly::SocketAddress>& server,
+    Optional<folly::SocketAddress>& server,
     size_t& totalData) {
   for (int packetNum = 0; packetNum < numPackets; ++packetNum) {
     // We create 1 buffer per packet so that it is not shared, this enables
@@ -1263,7 +1272,7 @@ void QuicClientTransport::recvMmsg(
     uint64_t readBufferSize,
     uint16_t numPackets,
     NetworkData& networkData,
-    folly::Optional<folly::SocketAddress>& server,
+    Optional<folly::SocketAddress>& server,
     size_t& totalData) {
   auto& msgs = recvmmsgStorage_.msgs;
   int flags = 0;
@@ -1420,7 +1429,7 @@ void QuicClientTransport::onNotifyDataAvailable(
   NetworkData networkData;
   networkData.reserve(numPackets);
   size_t totalData = 0;
-  folly::Optional<folly::SocketAddress> server;
+  Optional<folly::SocketAddress> server;
 
   if (conn_->transportSettings.shouldUseWrapperRecvmmsgForBatchRecv) {
     const auto result = sock.recvmmsgNetworkData(
@@ -1728,7 +1737,7 @@ void QuicClientTransport::maybeSendTransportKnobs() {
   }
 }
 
-folly::Optional<std::vector<TransportParameter>>
+Optional<std::vector<TransportParameter>>
 QuicClientTransport::getPeerTransportParams() const {
   if (clientConn_ && clientConn_->clientHandshakeLayer) {
     auto maybeParams =
@@ -1737,7 +1746,7 @@ QuicClientTransport::getPeerTransportParams() const {
       return maybeParams->parameters;
     }
   }
-  return folly::none;
+  return none;
 }
 
 void QuicClientTransport::setCongestionControl(CongestionControlType type) {

@@ -13,8 +13,12 @@
 
 #include <glog/logging.h>
 
+#include <folly/FileUtil.h>
 #include <folly/fibers/Baton.h>
 #include <folly/io/async/ScopedEventBaseThread.h>
+
+#include <fizz/compression/ZlibCertificateDecompressor.h>
+#include <fizz/compression/ZstdCertificateDecompressor.h>
 
 #include <quic/api/QuicSocket.h>
 #include <quic/client/QuicClientTransport.h>
@@ -43,13 +47,21 @@ class EchoClient : public quic::QuicSocket::ConnectionSetupCallback,
       bool useDatagrams,
       uint64_t activeConnIdLimit,
       bool enableMigration,
-      bool enableStreamGroups)
+      bool enableStreamGroups,
+      std::vector<std::string> alpns,
+      bool connectOnly,
+      const std::string& clientCertPath,
+      const std::string& clientKeyPath)
       : host_(host),
         port_(port),
         useDatagrams_(useDatagrams),
         activeConnIdLimit_(activeConnIdLimit),
         enableMigration_(enableMigration),
-        enableStreamGroups_(enableStreamGroups) {}
+        enableStreamGroups_(enableStreamGroups),
+        alpns_(std::move(alpns)),
+        connectOnly_(connectOnly),
+        clientCertPath_(clientCertPath),
+        clientKeyPath_(clientKeyPath) {}
 
   void readAvailable(quic::StreamId streamId) noexcept override {
     auto readData = quicClient_->read(streamId, 0);
@@ -63,7 +75,7 @@ class EchoClient : public quic::QuicSocket::ConnectionSetupCallback,
     } else {
       recvOffsets_[streamId] += copy->length();
     }
-    LOG(INFO) << "Client received data=" << copy->moveToFbString().toStdString()
+    LOG(INFO) << "Client received data=" << copy->to<std::string>()
               << " on stream=" << streamId;
   }
 
@@ -82,7 +94,7 @@ class EchoClient : public quic::QuicSocket::ConnectionSetupCallback,
     } else {
       recvOffsets_[streamId] += copy->length();
     }
-    LOG(INFO) << "Client received data=" << copy->moveToFbString().toStdString()
+    LOG(INFO) << "Client received data=" << copy->to<std::string>()
               << " on stream=" << streamId << ", groupId=" << groupId;
   }
 
@@ -159,7 +171,16 @@ class EchoClient : public quic::QuicSocket::ConnectionSetupCallback,
   }
 
   void onTransportReady() noexcept override {
-    startDone_.post();
+    if (!connectOnly_) {
+      startDone_.post();
+    }
+  }
+
+  void onReplaySafe() noexcept override {
+    if (connectOnly_) {
+      VLOG(3) << "Connected successfully";
+      startDone_.post();
+    }
   }
 
   void onStreamWriteReady(quic::StreamId id, uint64_t maxToSend) noexcept
@@ -183,12 +204,9 @@ class EchoClient : public quic::QuicSocket::ConnectionSetupCallback,
       return;
     }
     for (const auto& datagram : *res) {
-      LOG(INFO) << "Client received datagram ="
-                << datagram.bufQueue()
-                       .front()
-                       ->cloneCoalesced()
-                       ->moveToFbString()
-                       .toStdString();
+      LOG(INFO)
+          << "Client received datagram ="
+          << datagram.bufQueue().front()->cloneCoalesced()->to<std::string>();
     }
   }
 
@@ -200,9 +218,11 @@ class EchoClient : public quic::QuicSocket::ConnectionSetupCallback,
 
     evb->runInEventBaseThreadAndWait([&] {
       auto sock = std::make_unique<FollyQuicAsyncUDPSocket>(qEvb);
+      auto fizzCLientCtx = createFizzClientContext();
       auto fizzClientContext =
           FizzClientQuicHandshakeContext::Builder()
               .setCertificateVerifier(test::createTestCertificateVerifier())
+              .setFizzClientContext(std::move(fizzCLientCtx))
               .build();
       quicClient_ = std::make_shared<quic::QuicClientTransport>(
           qEvb, std::move(sock), std::move(fizzClientContext));
@@ -235,6 +255,13 @@ class EchoClient : public quic::QuicSocket::ConnectionSetupCallback,
 
     startDone_.wait();
 
+    if (connectOnly_) {
+      evb->runInEventBaseThreadAndWait(
+          [this] { quicClient_->closeNow(folly::none); });
+
+      return;
+    }
+
     std::string message;
     bool closed = false;
     auto client = quicClient_;
@@ -251,7 +278,7 @@ class EchoClient : public quic::QuicSocket::ConnectionSetupCallback,
 
     auto sendMessageInStream = [&]() {
       if (message == "/close") {
-        quicClient_->close(folly::none);
+        quicClient_->close(none);
         closed = true;
         return;
       }
@@ -305,12 +332,41 @@ class EchoClient : public quic::QuicSocket::ConnectionSetupCallback,
     if (res.hasError()) {
       LOG(ERROR) << "EchoClient writeChain error=" << uint32_t(res.error());
     } else {
-      auto str = message->moveToFbString().toStdString();
+      auto str = message->to<std::string>();
       LOG(INFO) << "EchoClient wrote \"" << str << "\""
                 << ", len=" << str.size() << " on stream=" << id;
       // sent whole message
       pendingOutput_.erase(id);
     }
+  }
+
+  std::shared_ptr<fizz::client::FizzClientContext> createFizzClientContext() {
+    auto fizzCLientCtx = std::make_shared<fizz::client::FizzClientContext>();
+
+    // ALPNs.
+    fizzCLientCtx->setSupportedAlpns(std::move(alpns_));
+
+    if (!clientCertPath_.empty() && !clientKeyPath_.empty()) {
+      // Client cert.
+      std::string certData;
+      folly::readFile(clientCertPath_.c_str(), certData);
+      std::string keyData;
+      folly::readFile(clientKeyPath_.c_str(), keyData);
+      auto cert = fizz::openssl::CertUtils::makeSelfCert(certData, keyData);
+
+      auto certManager = std::make_shared<fizz::client::CertManager>();
+      certManager->addCert(std::move(cert));
+      fizzCLientCtx->setClientCertManager(std::move(certManager));
+    }
+
+    // Compression settings.
+    auto mgr = std::make_shared<fizz::CertDecompressionManager>();
+    mgr->setDecompressors(
+        {std::make_shared<fizz::ZstdCertificateDecompressor>(),
+         std::make_shared<fizz::ZlibCertificateDecompressor>()});
+    fizzCLientCtx->setCertDecompressionManager(std::move(mgr));
+
+    return fizzCLientCtx;
   }
 
   std::string host_;
@@ -325,6 +381,10 @@ class EchoClient : public quic::QuicSocket::ConnectionSetupCallback,
   folly::fibers::Baton startDone_;
   std::array<StreamGroupId, kNumTestStreamGroups> streamGroups_;
   size_t curGroupIdIdx_{0};
+  std::vector<std::string> alpns_;
+  bool connectOnly_{false};
+  std::string clientCertPath_;
+  std::string clientKeyPath_;
 };
 } // namespace samples
 } // namespace quic

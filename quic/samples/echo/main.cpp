@@ -36,6 +36,13 @@ DEFINE_bool(
     disable_rtx,
     false,
     "Enable/disable retransmission for stream groups");
+DEFINE_string(alpns, "echo", "Comma separated ALPN list");
+DEFINE_bool(
+    connect_only,
+    false,
+    "Client specific; connect and exit when set to true");
+DEFINE_string(client_cert_path, "", "Client certificate file path");
+DEFINE_string(client_key_path, "", "Client private key file path");
 
 using namespace quic::samples;
 
@@ -49,8 +56,16 @@ int main(int argc, char* argv[]) {
   folly::Init init(&argc, &argv);
   fizz::CryptoUtils::init();
 
+  std::vector<std::string> alpns;
+  folly::split(",", FLAGS_alpns, alpns);
+
   if (FLAGS_mode == "server") {
+    if (FLAGS_connect_only) {
+      LOG(ERROR) << "connect_only is not supported in server mode";
+      return -1;
+    }
     EchoServer server(
+        std::move(alpns),
         FLAGS_host,
         FLAGS_port,
         FLAGS_use_datagrams,
@@ -73,7 +88,11 @@ int main(int argc, char* argv[]) {
         FLAGS_use_datagrams,
         FLAGS_active_conn_id_limit,
         FLAGS_enable_migration,
-        FLAGS_use_stream_groups);
+        FLAGS_use_stream_groups,
+        std::move(alpns),
+        FLAGS_connect_only,
+        FLAGS_client_cert_path,
+        FLAGS_client_key_path);
     client.start(FLAGS_token);
   } else {
     LOG(ERROR) << "Unknown mode specified: " << FLAGS_mode;

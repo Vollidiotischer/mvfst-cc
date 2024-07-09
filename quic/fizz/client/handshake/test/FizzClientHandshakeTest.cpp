@@ -283,7 +283,7 @@ class ClientHandshakeTest : public Test, public boost::static_visitor<> {
   std::vector<fizz::WriteToSocket> serverOutput;
   bool handshakeSuccess{false};
   bool earlyHandshakeSuccess{false};
-  folly::Optional<fizz::ReportError> handshakeError;
+  Optional<fizz::ReportError> handshakeError;
   folly::IOBufQueue serverReadBuf{folly::IOBufQueue::cacheChainLength()};
   std::unique_ptr<DelayedHolder, folly::DelayedDestruction::Destructor> dg;
   fizz::Aead::AeadOptions readAeadOptions;
@@ -294,7 +294,7 @@ class ClientHandshakeTest : public Test, public boost::static_visitor<> {
   const Aead* oneRttReadCipher = nullptr;
   std::unique_ptr<Aead> zeroRttWriteCipher;
 
-  folly::Optional<bool> zeroRttRejected;
+  Optional<bool> zeroRttRejected;
 
   std::shared_ptr<fizz::test::MockCertificateVerifier> verifier;
   std::shared_ptr<fizz::client::FizzClientContext> clientCtx;
@@ -304,15 +304,14 @@ class ClientHandshakeTest : public Test, public boost::static_visitor<> {
 TEST_F(ClientHandshakeTest, TestGetExportedKeyingMaterial) {
   // Sanity check. getExportedKeyingMaterial () should return nullptr prior to
   // an handshake.
-  auto ekm = handshake->getExportedKeyingMaterial(
-      "EXPORTER-Some-Label", folly::none, 32);
+  auto ekm =
+      handshake->getExportedKeyingMaterial("EXPORTER-Some-Label", none, 32);
   EXPECT_TRUE(!ekm.has_value());
 
   clientServerRound();
   serverClientRound();
   handshake->handshakeConfirmed();
-  ekm = handshake->getExportedKeyingMaterial(
-      "EXPORTER-Some-Label", folly::none, 32);
+  ekm = handshake->getExportedKeyingMaterial("EXPORTER-Some-Label", none, 32);
   ASSERT_TRUE(ekm.has_value());
   EXPECT_EQ(ekm->size(), 32);
 
@@ -699,8 +698,8 @@ TEST_F(ClientHandshakeECHPolicyTest, TestECHPolicyHandshake) {
   EXPECT_CALL(*echPolicy, getConfig(_))
       .WillOnce(Return(std::vector<fizz::ech::ECHConfig>{getECHConfig()}));
 
-  auto kex = std::make_unique<
-      fizz::openssl::OpenSSLECKeyExchange<fizz::openssl::P256>>();
+  auto kex = fizz::openssl::makeOpenSSLECKeyExchange<fizz::P256>();
+
   kex->setPrivateKey(fizz::test::getPrivateKey(fizz::test::kP256Key));
   echDecrypter = std::make_shared<fizz::ech::ECHConfigManager>();
   echDecrypter->addDecryptionConfig(
